@@ -1,156 +1,69 @@
-# Mujoco Ros2 Control
-
-The MuJoCo ROS 2 control hardware interface is designed to enable seamless integration between MuJoCo, a high-performance physics engine, and ROS 2, a widely used middleware for robotic systems. This interface provides a robust and efficient solution for leveraging MuJoCo’s powerful simulation capabilities within the ROS 2 ecosystem, enabling realistic physics-based robot simulation and control.
-
-**software name:** Mujoco Ros2 Control
-
-Mujoco Ros2 Control was initiated and is currently developed at the
-[Robotics Innovation Center](http://robotik.dfki-bremen.de/en/startpage.html) of the
-[German Research Center for Artificial Intelligence (DFKI)](http://www.dfki.de) in Bremen.
-
-![https://www.dfki.de/web](./images/dfki_logo.png)
-
-## Motivation
-The development and testing of control algorithms for robotic systems is a crucial step in ensuring their reliability, safety, and efficiency. However, conducting these tests on physical hardware can be expensive, time-consuming, and prone to mechanical wear and tear. To overcome these challenges, accurate and efficient physical simulations have become an indispensable tool for researchers, engineers, and roboticists. These simulations enable comprehensive testing of robot controllers, planning algorithms, and perception systems in a controlled, repeatable, and risk-free environment.
-
-## Getting Started
-To use MuJoCo Ros2 control, you must create a launchfile (you can use the examples as reference):
-### 1. Generate MJCF Using `xacro2mjcf.py` Node
-- Add the `xacro2mjcf.py` node in your launch file to create the MJCF file at launch time.
-- **Required setup:**
-  - Use **absolute paths** for all file references.
-  - Or pass `robot_description` as a **string parameter** (not a file path).
-  - Set:
-    - `output_file`: full path to the generated `.xml` MJCF file.
-    - `mujoco_files_path`: directory where MJCF and related files will be stored.
-      - **⚠️ `output_file` must be inside `mujoco_files_path`.**
-
-
-### 2. Required Parameters for `mujoco_ros2_control` Node
-| Parameter              | Description                                       |
-|------------------------|---------------------------------------------------|
-| `robot_description`    | URDF string (not a file path)                     |
-| `robot_model_path`     | Path to the generated MJCF `.xml` file            |
-| ROS 2 control YAML     | Path to controller config (e.g., `*.yaml`)        |
-
-
-### Launch Flow
-- Launch `xacro2mjcf.py` first.
-- After it exits, launch `mujoco_ros2_control`.
-- Then load controllers (e.g., via `spawner` nodes).
-
-For the urdf creation you can take a look at ![URDF Configuration](./mujoco_ros2_control/README.md)
-
-## Examples
-We provide one example with the franka description and the gears from the IndustRealKit that can be started with ```ros2 launch franka_mujoco franka.launch.py```
-![RGBD Camera inside of MuJoCo](./paper/figures/franka_rgbd_example.png)
-
-and one example with a unitree H1 that can be started with ```ros2 launch unitree_h1_mujoco unitree_h1.launch.py```
-![Unitree H1 with floating joint between world and pelvis](./paper/figures/unitree_h1_example.png)
-
-### Docker
-To start you can use the ![dockerfile](./Dockerfile) to create a docker container with MuJoCo Ros2 control and its examples.
-```docker build -t "mujoco_ros2_control" .```
-
-To try out the examples you can follow this steps to run a container with mujoco_ros2_control and its examples:
-```bash
-# Build the container
-docker build docker build -t "mujoco_ros2_control" .
-# create the network for the container
-docker network create ros
-#give permissions to use X11 with docker 
-xhost +local:docker
-# starts the container with the franka example
-docker run \
-    --network="ros" \
-    --device="/dev/dri:/dev/dri" \
-    --env DISPLAY=$DISPLAY \
-    --volume /tmp/.Xdocker \
-    -v /tmp/.X11-unix:/tmp/.X11-unix \
-    -it mujoco_ros2_control bash
-xhost -local:docker
+# URDF Configuration
+## Mujoco specific elements
+```mujoco element
+<mujoco>
+    <!-- define compiler options (https://mujoco.readthedocs.io/en/stable/XMLreference.html#compiler) -->
+    <compiler meshdir="/tmp/mujoco/meshes" discardvisual="true" autolimits="false" balanceinertia="true"/>
+    
+    <!-- define mujoco options (https://mujoco.readthedocs.io/en/stable/XMLreference.html#option) -->
+    <option integrator="implicitfast" gravity="0 0 -9.81" impratio="10" cone="elliptic" solver="Newton">
+        <flag multiccd="enable" />
+    </option>
+    
+    <!-- add elements/tags to a mjcf body or child of a body
+    <reference name="${prefix}left_inner_finger">
+        <body gravcomp="1"/>  <!-- add gravcomp do the referenced body -->
+        <joint damping="10"/> <!-- add damping to every child joint of the referenced body -->
+        <!-- add tags to the geom with the given name, that is a child of the reference body -->
+        <geom name="geom1" friction="0.7" mass="0" priority="1" solimp="0.95 0.99 0.001" solref="0.004 1"/>
+    </reference>
+    
+    <!-- define a rgbd camera in mujoco (https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-camera) -->
+    <reference name="camera_link">
+        <camera name="camera" mode="fixed" fovy="45" quat="0.5 0.5 -0.5 -0.5"/>
+    </reference>
+    
+    <!-- define a a pose sensor for the camera link with respect to the world frame -->
+    <sensor>
+        <!-- https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framepos -->
+        <framepos name="camera_link_pose" objtype="body" objname="camera_link" reftype="body" refname="world"/>
+        <!-- https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framequat -->
+        <framequat name="camera_link_quat" objtype="body" objname="camera_link" reftype="body" refname="world"/>
+    </sensor>
+</mujoco>
 ```
-
-
-## Requirements / Dependencies
+## ROS2 Control hardware example:
+```ros2_control
+<ros2_control name="${prefix}${name}" type="system">
+    <hardware>
+        <plugin>mujoco_ros2_control/MujocoSystem</plugin>
+    <hardware>
+    
+    <!-- example joint with position + velocity + acceleration control -->
+    <joint name="joint1">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <command_interface name="acceleration"/>
+        <param name="kp">1000.0</param>
+        <param name="ki">0.0</param>
+        <param name="kd">0.01</param>
+        <!-- only needed if position and velocity control -->
+        <param name="kvff">0.01</param>
+        <!-- only needed if position, velocity and acceleration control -->
+        <param name="kaff">0.01</param>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+    </joint>
+    
+    <!-- example joint with position + velocity + acceleration control -->
+    <joint name="joint2">
+        <command_interface name="effort"/>
+        <state_interface name="position">
+            <param name="initial_value">1.0</param>
+        </state_interface>
+        <state_interface name="velocity">
+            <param name="initial_value">0.0</param>
+        </state_interface>
+    </joint>
+</ros2_control>
 ```
-libglfw3-dev
-libx11-dev
-xorg-dev
-ros-jazzy-urdf
-ros-jazzy-xacro
-ros-jazzy-rviz2
-ros-jazzy-ros2-control
-ros-jazzy-ros2-controllers
-ros-jazzy-controller-manager
-ros-jazzy-pcl-ros
-ros-jazzy-perception-pcl
-libopencv-dev
-ros-jazzy-pcl-conversions
-ros-jazzy-cv-bridge
-libpcl-dev
-ros-jazzy-urdfdom-py
-```
-
-## Installation
-To use the **MuJoCo ROS2 Control**, follow these steps:
-1. Install [ROS2 Jazzy](https://docs.ros.org/en/jazzy/Installation.html)
-2. Install the Dependencies <br />
-   ``` bash
-   $ apt-get update && apt-get install -y \
-        git \
-        libglfw3-dev \
-        libx11-dev \
-        xorg-dev \
-        ros-jazzy-urdf \
-        ros-jazzy-xacro \
-        ros-jazzy-rviz2 \
-        ros-jazzy-ros2-control \
-        ros-jazzy-ros2-controllers \
-        ros-jazzy-controller-manager \
-        ros-jazzy-pcl-ros \
-        ros-jazzy-perception-pcl \
-        ros-jazzy-urdfdom-py \
-        libopencv-dev \
-        ros-jazzy-pcl-conversions \
-        ros-jazzy-cv-bridge \
-        libpcl-dev
-   ```
-3. Build the ros package.
-   ```bash
-    git clone <package url>
-    colcon build
-   ```
-
-## Documentation
-Run ```doxygen Doxyfile``` in the mujoco_ros2_control directory
-
-## Bug Reports
-
-To search for bugs or report them, please use GitHubs ![issue tracker](trhttps://github.com/dfki-ric/mujoco_ros2_control/issues)
-
-[//]: <> (TODO put a link to the issue tracker here)
-
-## Releases
-
-### Semantic Versioning
-
-Semantic versioning must be used, that is, the major version number will be
-incremented when the API changes in a backwards incompatible way, the minor
-version will be incremented when new functionality is added in a backwards
-compatible manner, and the patch version is incremented for bugfixes,
-documentation, etc.
-
-## License
-Mujoco Ros2 Control is distributed under the [3-clause BSD license](https://opensource.org/licenses/BSD-3-Clause).
-
-## Maintainer / Authors / Contributers
-Adrian Danzglock,       adrian.danzglock@dfki.de \
-Vamsi Krishna Origanti, vamsi.origanti@dfki.de
-
-Copyright 2025, DFKI GmbH / Robotics Innovation Center
-
-## Funding
-MuJoCo ROS2 Control was initiated and developed at Robotics Innovation Center, German Research Center for Artificial Intelligence (DFKI GmbH) at Bremen, Germany as part of the HARTU Project. This project has received funding from the European Union’s research and innovation program Horizon Europe under grant agreement No. 101092100.
-
-![!\[\]()](https://eufunds.me/wp-content/uploads/2021/09/EU-flag-Horizon-Europe.jpg)

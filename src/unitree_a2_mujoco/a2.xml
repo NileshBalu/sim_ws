@@ -46,7 +46,7 @@
     <body name="base_link" pos="-1 1 0.7">
       <inertial pos="0.00698259 -0.000712858 0.0128895" quat="-0.00152907 0.699583 -0.00252986 0.714546" mass="19.651" diaginertia="0.472398 0.407723 0.141627"/>
       <joint name="floating_base_joint" type="free" limited="false" actuatorfrclimited="false"/>
-      <site name="imu" pos="-0.0 0 0.0" />
+      <site name="imu_site" pos="-0.0 0 0.0" />
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.792157 0.819608 0.933333 1" mesh="base_link"/>
       <geom class="collision" size="0.12 0.14 0.085" pos="0 0 0.007" type="box" rgba="0.792157 0.819608 0.933333 1"/>
       <geom class="collision" size="0.04 0.025 0.01" pos="0.25 0 0.119" type="box" rgba="0.792157 0.819608 0.933333 1"/>
@@ -149,11 +149,11 @@
           </body>
         </body>
       </body>
-      <body name="lidar_head" pos="0.3 0 0.15" euler="0 0 -1.5708">
+      <!-- <body name="lidar_head" pos="0.3 0 0.15" euler="0 0 -1.5708">
         <replicate count="100" euler="0 0 0.0314159">
           <site name="rf" pos="0 0 0" euler="0 1.5708 0" group="4"/>
         </replicate>
-      </body>
+      </body> -->
     </body>
   </worldbody>
 
@@ -212,14 +212,14 @@
     <jointactuatorfrc name="RL_thigh_torque" joint="RL_thigh_joint" noise="0.01" />
     <jointactuatorfrc name="RL_calf_torque" joint="RL_calf_joint" noise="0.01" />
 
-    <framequat name="imu_quat" objtype="site" objname="imu" />
-    <gyro name="imu_gyro" site="imu" />
-    <accelerometer name="imu_acc" site="imu" />
+    <framequat name="imu_quat" objtype="site" objname="imu_site" />
+    <gyro name="imu_gyro" site="imu_site" />
+    <accelerometer name="imu_acc" site="imu_site" />
 
-    <rangefinder name="lidar_array" site="rf" cutoff="5.0"/>
+    <!-- <rangefinder name="lidar_array" site="rf" cutoff="5.0"/> -->
 
-    <framepos name="frame_pos" objtype="site" objname="imu" />
-    <framelinvel name="frame_vel" objtype="site" objname="imu" />
+    <framepos name="frame_pos" objtype="site" objname="imu_site" />
+    <framelinvel name="frame_vel" objtype="site" objname="imu_site" />
   </sensor>
 
   <visual>

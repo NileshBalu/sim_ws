@@ -41,7 +41,8 @@ namespace mujoco_ros2_sensors {
         this->publisher_ = nh_->create_publisher<sensor_msgs::msg::Imu>("~/imu", rclcpp::SystemDefaultsQoS());
         this->imu_publisher_ = std::make_unique<ImuPublisher>(publisher_);
         imu_publisher_->lock();
-        imu_publisher_->msg_.header.frame_id = sensor_.frame_id;
+        // imu_publisher_->msg_.header.frame_id = sensor_.frame_id;
+        imu_publisher_->msg_.header.frame_id = "imu_link";
         imu_publisher_->unlock();
 
 

@@ -190,6 +190,14 @@ namespace mujoco_ros2_sensors{
 
         for (size_t i = 0; i < sensors.size(); i++) {
             const auto &sensor = sensors[i];
+            // skip pose sensor if body and frame are identical, e.g. imu sites
+            if (sensor.frame_id == sensor.body_name) {
+                RCLCPP_WARN(rclcpp::get_logger("pose_sensor_registration"),
+                            "Skipping pose sensor for '%s' because frame_id == body_name",
+                            sensor.body_name.c_str());
+                continue;
+            }
+
             if (!sensor.isValid()) {
                 std::string value;
                 if (sensor.position) {

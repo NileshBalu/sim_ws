@@ -70,7 +70,10 @@ namespace mujoco_ros2_sensors {
             t_.transform.rotation.y = mujoco_data_->sensordata[sensor_.orientation_sensor_adr + 2];
             t_.transform.rotation.z = mujoco_data_->sensordata[sensor_.orientation_sensor_adr + 3];
             t_.transform.rotation.w = mujoco_data_->sensordata[sensor_.orientation_sensor_adr];
-            tf_broadcaster_->sendTransform(t_);
+            // avoid self-transform warnings
+            if (t_.header.frame_id != t_.child_frame_id) {
+                tf_broadcaster_->sendTransform(t_);
+            }
         //} else {
             if (pose_stamped_publisher_->trylock()) {
                 pose_stamped_publisher_->msg_.header.stamp.sec = std::floor(mujoco_data_->time);

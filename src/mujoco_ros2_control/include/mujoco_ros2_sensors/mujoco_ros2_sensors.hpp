@@ -99,7 +99,7 @@ namespace mujoco_ros2_sensors {
         std::vector<LidarSensorStruct> lidar_sensors_;
         std::vector<rclcpp::Node::SharedPtr> lidar_sensor_nodes_;
         std::vector<std::shared_ptr<mujoco_ros2_sensors::LidarSensor>> lidar_sensor_objs_;
-        void register_lidar_sensors(const std::vector<LidarSensorStruct> &sensors);
+        void register_lidar_sensors(const LidarSensorStruct &sensor);
 
         std::string get_frame_id(int sensor_id);
     };

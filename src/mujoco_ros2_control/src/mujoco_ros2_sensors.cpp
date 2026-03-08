@@ -44,12 +44,14 @@ namespace mujoco_ros2_sensors{
         std::vector<PoseSensorStruct> pose_sensors;
         std::vector<WrenchSensorStruct> wrench_sensors;
         std::vector<ImuSensorStruct> imu_sensors;
-        std::vector<LidarSensorStruct> lidar_sensors;
+        // single lidar struct for the whole robot
+        LidarSensorStruct lidar_sensor;
+
         for (const auto &sensor : sensors_) {
             PoseSensorStruct pose_sensor;
             WrenchSensorStruct wrench_sensor;
             ImuSensorStruct imu_sensor;
-            LidarSensorStruct lidar_sensor;
+            // note: do NOT re-declare lidar_sensor here - we want to accumulate into the outer one
             for (int i = 0; i < sensor.second.sensor_ids.size(); i++) {
                 auto &sensor_id = sensor.second.sensor_ids[i];
                 auto &sensor_type = sensor.second.sensor_types[i];
@@ -105,28 +107,24 @@ namespace mujoco_ros2_sensors{
                     imu_sensor.gyro_sensor_adr = sensor_address;
                     imu_sensor.gyro = true;
                 } else if (sensor.second.sensor_types[i] == mjSENS_RANGEFINDER) {
-                    // This will catch "lidar_array", "lidar_array_1", "lidar_array_2", etc.
-                    if (sensor.first.find("rf") == 0) { 
-                        
-                        lidar_sensor.frame_id = "lidar_link";
-                        lidar_sensor.range_sensor_adrs.push_back(sensor_address);
-                         
-                        // 0.0314159 radians is ~1.8 degrees. 
-                        // 100 counts * 0.0314159 = 3.14 radians (180 degree FOV)
-                        lidar_sensor.angle_min = -1.5708; // -90 degrees
-                        lidar_sensor.angle_max = 1.5708;  // +90 degrees
+                    // collect every rangefinder beam into the single lidar_sensor struct
+                    if (lidar_sensor.range_sensor_adrs.empty()) {
+                        // first beam: set default parameters and frame_id
+                        lidar_sensor.frame_id = get_frame_id(sensor_id);
+                        lidar_sensor.angle_min = -1.5708;
+                        lidar_sensor.angle_max = 1.5708;
                         lidar_sensor.range_min = 0.0;
-                        lidar_sensor.range_max = 5.0;     // 'cutoff' value
+                        lidar_sensor.range_max = 5.0;
                     }
-                } 
+                    lidar_sensor.range_sensor_adrs.push_back(sensor_address);
+                    lidar_sensor.sensor_ids.push_back(sensor_id);
+                }
                 if ((sensor_type == mjSENS_FRAMEPOS || sensor_type == mjSENS_FRAMEQUAT) && pose_sensor.frame_id.empty()) {
                     pose_sensor.frame_id = get_frame_id(sensor_id);
                 } else if ((sensor_type == mjSENS_FORCE || sensor_type == mjSENS_TORQUE) && wrench_sensor.frame_id.empty()) {
                     wrench_sensor.frame_id = get_frame_id(sensor_id);
                 } else if ((sensor_type == mjSENS_ACCELEROMETER || sensor_type == mjSENS_GYRO) && imu_sensor.frame_id.empty()) {
                     imu_sensor.frame_id = get_frame_id(sensor_id);
-                } else if ((sensor_type == mjSENS_RANGEFINDER) && lidar_sensor.frame_id.empty()) {
-                    lidar_sensor.frame_id = get_frame_id(sensor_id);
                 }
             }
             if (!pose_sensor.frame_id.empty()) {
@@ -138,15 +136,15 @@ namespace mujoco_ros2_sensors{
             if (!imu_sensor.frame_id.empty()) {
                 imu_sensors.push_back(imu_sensor);
             }
-            if (!lidar_sensor.frame_id.empty()) {
-                lidar_sensors.push_back(lidar_sensor);
-            }
         }
 
         register_pose_sensors(pose_sensors);
         register_wrench_sensors(wrench_sensors);
         register_imu_sensors(imu_sensors);
-        register_lidar_sensors(lidar_sensors);
+        // only register if we found any rangefinders
+        if (!lidar_sensor.range_sensor_adrs.empty()) {
+            register_lidar_sensors(lidar_sensor);
+        }
     }
 
     MujocoRos2Sensors::~MujocoRos2Sensors() {
@@ -261,47 +259,42 @@ namespace mujoco_ros2_sensors{
             }
             std::string name = sensor.body_name;
 
-            auto node = imu_sensor_nodes_.emplace_back(rclcpp::Node::make_shared(name + "_imu_sensor", rclcpp::NodeOptions().parameter_overrides({{"use_sim_time", true}})));
+            auto node = imu_sensor_nodes_.emplace_back(rclcpp::Node::make_shared("imu_node", rclcpp::NodeOptions().parameter_overrides({{"use_sim_time", true}})));
             executor_->add_node(node);
             imu_sensor_objs_.at(i).reset(new ImuSensor(node, mujoco_model_, mujoco_data_, sensor, stop_, 1000.0));
             RCLCPP_INFO(rclcpp::get_logger("imu_sensor_registration"), "[%s] frame: %s", sensor.body_name.c_str(), sensor.frame_id.c_str());
         }
     }
 
-    void MujocoRos2Sensors::register_lidar_sensors(const std::vector<LidarSensorStruct> &sensors) {
-        // Resize the object vector to hold our Lidar bridge objects
-        lidar_sensor_objs_.resize(sensors.size());
+    void MujocoRos2Sensors::register_lidar_sensors(const LidarSensorStruct &sensor) {
 
-        for (size_t i = 0; i < sensors.size(); i++) {
-            const auto &sensor = sensors[i];
 
-            // 1. Validation: Ensure we actually found rangefinder beams
-            if (sensor.range_sensor_adrs.empty()) {
-                RCLCPP_ERROR(rclcpp::get_logger("lidar_sensor_registration"), 
-                            "Lidar sensor for frame %s has 0 rangefinders! Skipping.", 
-                            sensor.frame_id.c_str());
-                continue;
-            }
-
-            // 2. Create a dedicated node for the Lidar
-            // We use the frame_id to make the name unique
-            std::string node_name = "lidar_sensor_" + sensor.frame_id;
-            auto node = lidar_sensor_nodes_.emplace_back(
-                rclcpp::Node::make_shared(node_name, 
-                rclcpp::NodeOptions().parameter_overrides({{"use_sim_time", true}}))
-            );
-            
-            executor_->add_node(node);
-
-            // 3. Initialize the LidarSensor object
-            // Frequency is set to 50.0Hz
-            lidar_sensor_objs_.at(i).reset(
-                new LidarSensor(node, mujoco_model_, mujoco_data_, sensor, stop_, 50.0)
-            );
-
-            RCLCPP_INFO(rclcpp::get_logger("lidar_sensor_registration"), 
-                        "Registered Lidar: frame=%s, beams=%zu", 
-                        sensor.frame_id.c_str(), sensor.range_sensor_adrs.size());
+        // 1. Validation: Ensure we actually found rangefinder beams
+        if (sensor.range_sensor_adrs.empty()) {
+            RCLCPP_ERROR(rclcpp::get_logger("lidar_sensor_registration"), 
+                        "Lidar sensor for frame %s has 0 rangefinders! Skipping.", 
+                        sensor.frame_id.c_str());
+            return;
         }
+
+        // 2. Create a dedicated node for the Lidar
+        // We use the frame_id to make the name unique
+        std::string node_name = "lidar_node";
+        auto node = lidar_sensor_nodes_.emplace_back(
+            rclcpp::Node::make_shared(node_name, 
+            rclcpp::NodeOptions().parameter_overrides({{"use_sim_time", true}}))
+        );
+        
+        executor_->add_node(node);
+
+        // 3. Instantiate the LidarSensor object so it will publish
+        lidar_sensor_objs_.resize(1);
+        lidar_sensor_objs_.at(0).reset(
+            new LidarSensor(node, mujoco_model_, mujoco_data_, sensor, stop_, 50.0)
+        );
+
+        RCLCPP_INFO(rclcpp::get_logger("lidar_sensor_registration"), 
+                    "Registered Lidar: frame=%s, beams=%zu", 
+                    sensor.frame_id.c_str(), sensor.range_sensor_adrs.size());
     }
 }

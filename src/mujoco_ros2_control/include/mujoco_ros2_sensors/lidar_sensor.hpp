@@ -10,12 +10,13 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "realtime_tools/realtime_publisher.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
 
 namespace mujoco_ros2_sensors {
     struct LidarSensorStruct {
         std::string frame_id;
         std::vector<int> range_sensor_adrs; // Addresses of each rangefinder in the array
+        std::vector<int> sensor_ids;
         double angle_min;
         double angle_max;
         double range_min;
@@ -39,14 +40,17 @@ namespace mujoco_ros2_sensors {
         rclcpp::TimerBase::SharedPtr timer_; ///< Shared pointer to the ROS 2 timer object used for scheduling periodic updates.
 
         // fallback to pose publisher when position or orientation is missing
-        using LidarPublisher = realtime_tools::RealtimePublisher<sensor_msgs::msg::LaserScan>;
+        using LidarPublisher = realtime_tools::RealtimePublisher<sensor_msgs::msg::PointCloud2>;
         using LidarPublisherPtr = std::unique_ptr<LidarPublisher>;
-        rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_;
         LidarPublisherPtr lidar_publisher_;
 
         mjData* mujoco_data_ = nullptr; ///< Pointer to the Mujoco data object representing the current state of the simulation.
 
         LidarSensorStruct sensor_;
+
+        std::vector<double> beam_directions_;
+        std::vector<double> beam_origins_;
     };
 }
 #endif //MUJOCO_ROS2_CONTROL_LIDAR_SENSOR_HPP

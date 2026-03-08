@@ -16,20 +16,36 @@ namespace mujoco_ros2_sensors {
         beam_origins_.reserve(3 * num_beams);
         beam_directions_.reserve(3 * num_beams);
 
+        // Find the reference body (lidar_link) to transform points into its frame
+        int ref_body_id = mj_name2id(model, mjOBJ_BODY, "lidar_link");
+        if (ref_body_id == -1) {
+            RCLCPP_ERROR(nh_->get_logger(), "Body 'lidar_link' not found in MuJoCo model. Lidar points may be wrong.");
+            ref_body_id = 0; // Fallback to world
+        }
+
+        // Get reference frame global pose
+        const double* ref_pos = data->xpos + 3 * ref_body_id;
+        const double* ref_mat = data->xmat + 9 * ref_body_id;
+
         for (int sensor_id : sensor_.sensor_ids) {
             int site_id = model->sensor_objid[sensor_id];
-            // site_pos and site_quat are local to the parent body (lidar_head/lidar_link)
-            const double* pos = model->site_pos + 3 * site_id;
-            const double* quat = model->site_quat + 4 * site_id;
+            
+            // Get site global pose
+            const double* site_pos = data->site_xpos + 3 * site_id;
+            const double* site_mat = data->site_xmat + 9 * site_id;
 
-            // MuJoCo rangefinders point along the site's Z-axis.
-            // We rotate the vector (0, 0, 1) by the site's quaternion to get the direction.
-            double vec[3] = {0, 0, 1};
-            double dir[3];
-            mju_rotVecQuat(dir, vec, quat);
+            // Calculate relative position: P_local = R_ref^T * (P_global - P_ref)
+            double rel_pos[3];
+            double diff[3] = {site_pos[0] - ref_pos[0], site_pos[1] - ref_pos[1], site_pos[2] - ref_pos[2]};
+            mju_mulMatTVec(rel_pos, ref_mat, diff, 3, 3);
 
-            beam_origins_.insert(beam_origins_.end(), {pos[0], pos[1], pos[2]});
-            beam_directions_.insert(beam_directions_.end(), {dir[0], dir[1], dir[2]});
+            // Calculate relative direction (Z-axis of site): D_local = R_ref^T * (R_site * Z_unit)
+            double site_z[3] = {site_mat[2], site_mat[5], site_mat[8]}; // 3rd column of rotation matrix is Z axis
+            double rel_dir[3];
+            mju_mulMatTVec(rel_dir, ref_mat, site_z, 3, 3);
+
+            beam_origins_.insert(beam_origins_.end(), {rel_pos[0], rel_pos[1], rel_pos[2]});
+            beam_directions_.insert(beam_directions_.end(), {rel_dir[0], rel_dir[1], rel_dir[2]});
         }
 
 

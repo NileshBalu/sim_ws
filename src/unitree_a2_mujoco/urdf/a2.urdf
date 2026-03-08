@@ -1059,15 +1059,36 @@
       xyz="0 0 0" />
   </joint>
 
-  <!-- <link name="imu_site"/>
+  <link name="imu_link">
+    <inertial>
+      <!-- zero mass, placeholder; actual IMU has negligible mass -->
+      <mass value="0.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.0" ixy="0.0" ixz="0.0" iyy="0.0" iyz="0.0" izz="0.0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.01"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.01"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
-    <child link="imu_site"/>
+    <child link="imu_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint> -->
+  </joint>
 
-  
- <ros2_control name="MujocoSystem" type="system">
+  <ros2_control name="MujocoSystem" type="system">
   <hardware>
     <plugin>mujoco_ros2_control/MujocoSystem</plugin>
   </hardware>

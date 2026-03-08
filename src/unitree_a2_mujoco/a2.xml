@@ -149,11 +149,11 @@
           </body>
         </body>
       </body>
-      <!-- <body name="lidar_head" pos="0.3 0 0.15" euler="0 0 -1.5708">
+      <body name="lidar_head" pos="0.3 0 0.15" euler="0 0 -1.5708">
         <replicate count="100" euler="0 0 0.0314159">
           <site name="rf" pos="0 0 0" euler="0 1.5708 0" group="4"/>
         </replicate>
-      </body> -->
+      </body>
     </body>
   </worldbody>
 
@@ -216,7 +216,7 @@
     <gyro name="imu_gyro" site="imu_site" />
     <accelerometer name="imu_acc" site="imu_site" />
 
-    <!-- <rangefinder name="lidar_array" site="rf" cutoff="5.0"/> -->
+    <rangefinder name="lidar_array" site="rf" cutoff="5.0"/>
 
     <framepos name="frame_pos" objtype="site" objname="imu_site" />
     <framelinvel name="frame_vel" objtype="site" objname="imu_site" />

@@ -22,7 +22,7 @@ mujoco_ros2_control:
 
   simulation_frequency: {
     type: double,
-    default_value: 1000.0,
+    default_value: 100.0,
     read_only: true,
     description: "Frequency of the Simulation",
     validation: {

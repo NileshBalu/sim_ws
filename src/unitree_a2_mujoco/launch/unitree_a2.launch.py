@@ -50,7 +50,7 @@ def create_nodes(context: LaunchContext):
         parameters=[
             robot_description,
             ros2_control_params_file,
-            {"simulation_frequency": 500.0},
+            {"simulation_frequency": 200.0},
             {"use_sim_time": True},
             {"realtime_factor": -1.0},
             {"robot_model_path": mujoco_model_file},
@@ -78,28 +78,28 @@ def create_nodes(context: LaunchContext):
     fl_leg_controller = Node(
         package="controller_manager", 
         executable="spawner", 
-        arguments=["fl_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file], 
+        arguments=["fl_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file, "--inactive"], 
         namespace="/"
     )
     
     fr_leg_controller = Node(
         package="controller_manager", 
         executable="spawner", 
-        arguments=["fr_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file], 
+        arguments=["fr_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file, "--inactive"], 
         namespace="/"
     )
     
     rl_leg_controller = Node(
         package="controller_manager", 
         executable="spawner", 
-        arguments=["rl_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file], 
+        arguments=["rl_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file, "--inactive"], 
         namespace="/"
     )
     
     rr_leg_controller = Node(
         package="controller_manager", 
         executable="spawner", 
-        arguments=["rr_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file], 
+        arguments=["rr_leg_controller", "--controller-manager", ["/", "controller_manager"], '--param-file', ros2_control_params_file, "--inactive"], 
         namespace="/"
     )
 

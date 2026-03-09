@@ -277,7 +277,7 @@ namespace mujoco_ros2_sensors{
 
         // 3. Instantiate the LidarSensor object so it will publish
         lidar_sensor_objs_.push_back(
-            std::make_shared<LidarSensor>(node, mujoco_model_, mujoco_data_, sensor, stop_, 20.0) // Using a fixed frequency of 50Hz
+            std::make_shared<LidarSensor>(node, mujoco_model_, mujoco_data_, sensor, stop_, 20.0) // Using a fixed frequency of 20Hz
         );
 
         RCLCPP_INFO(rclcpp::get_logger("lidar_sensor_registration"),

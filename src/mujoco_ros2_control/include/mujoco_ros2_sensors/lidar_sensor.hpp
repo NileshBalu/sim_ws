@@ -44,8 +44,9 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   // Parameters and Buffers for mj_multiRay
-  double min_angle_, max_angle_;
-  int samples_;
+  double min_theta_, max_theta_, min_phi_, max_phi_;
+  int h_samples_;
+  int v_samples_;
   std::vector<mjtNum> ray_vecs_, ray_dists_, local_ray_vecs_;
   std::vector<int> ray_geomids_;
 };

@@ -16,9 +16,13 @@ LidarSensor::LidarSensor(
     lidar_publisher_ = std::make_unique<LidarPublisher>(publisher_);
 
     // Read Lidar parameters
-    min_angle_ = node_->declare_parameter<double>("min_angle", -M_PI);
-    max_angle_ = node_->declare_parameter<double>("max_angle", M_PI);
-    samples_ = node_->declare_parameter<int>("samples", 360);
+    min_theta_ = node_->declare_parameter<double>("min_theta", -M_PI);
+    max_theta_ = node_->declare_parameter<double>("max_theta", M_PI);
+    min_phi_ = node_->declare_parameter<double>("min_phi", -M_PI*4.5/180);
+    max_phi_ = node_->declare_parameter<double>("max_phi", M_PI/3);
+    
+    h_samples_ = node_->declare_parameter<int>("h_samples", 360);
+    v_samples_ = node_->declare_parameter<int>("v_samples", 20);
 
     // Allow overriding range limits from ROS params, otherwise use defaults from struct
     if (node_->has_parameter("range_min")) {
@@ -29,22 +33,27 @@ LidarSensor::LidarSensor(
     }
 
     // Resize buffers for mj_multiRay
-    ray_vecs_.resize(samples_ * 3);
-    local_ray_vecs_.resize(samples_ * 3);
-    ray_dists_.resize(samples_);
-    ray_geomids_.resize(samples_);
+    ray_vecs_.resize(h_samples_ * v_samples_ * 3);
+    local_ray_vecs_.resize(h_samples_ * v_samples_ * 3);
+    ray_dists_.resize(h_samples_ * v_samples_);
+    ray_geomids_.resize(h_samples_ * v_samples_);
 
     // Precompute local vectors
-    double angle_step = (samples_ > 1) ? (max_angle_ - min_angle_) / (samples_ - 1) : 0.0;
-    for (int i = 0; i < samples_; ++i) {
-        double angle = min_angle_ + i * angle_step;
-        local_ray_vecs_[3 * i + 0] = std::cos(angle);
-        local_ray_vecs_[3 * i + 1] = std::sin(angle);
-        local_ray_vecs_[3 * i + 2] = 0.0;
+    double theta_step = (h_samples_ > 1) ? (max_theta_ - min_theta_) / (h_samples_ - 1) : 0.0;
+    double phi_step = (v_samples_ > 1) ? (max_phi_ - min_phi_) / (v_samples_ - 1) : 0.0;
+    for (int i = 0; i < h_samples_; ++i) {
+        for (int j = 0; j < v_samples_; ++j) {
+            double theta = min_theta_ + i * theta_step;
+            double phi = min_phi_ + j * phi_step;
+            local_ray_vecs_[3 * (j*h_samples_ + i) + 0] = std::cos(theta)*std::cos(phi);
+            local_ray_vecs_[3 * (j*h_samples_ + i) + 1] = std::sin(theta)*std::cos(phi);
+            local_ray_vecs_[3 * (j*h_samples_ + i) + 2] = std::sin(phi);
+
+        }
     }
 
     RCLCPP_INFO(node_->get_logger(), "Lidar initialized on frame '%s' with %d samples. Range: [%.2f, %.2f]",
-                sensor_.frame_id.c_str(), samples_, sensor_.range_min, sensor_.range_max);
+                sensor_.frame_id.c_str(), h_samples_ * v_samples_, sensor_.range_min, sensor_.range_max);
 
     timer_ = node_->create_wall_timer(
             std::chrono::duration<double>(1.0 / frequency),
@@ -54,7 +63,7 @@ LidarSensor::LidarSensor(
 void LidarSensor::update()
 {
     if (lidar_publisher_->trylock()) {
-        // 1. Get Sensor Pose
+        // Get Sensor Pose - in this case, it is the baselink, except, it is offset 0.2 m high
         mjtNum pos[3];
         mjtNum mat[9];
         int body_exclude = -1;
@@ -76,33 +85,32 @@ void LidarSensor::update()
              return;
         }
 
-        // 2. Compute Ray Vectors in Global Frame
-        // We need to replicate the start point for each ray for mj_multiRay
-        std::vector<mjtNum> ray_pnts(samples_ * 3);
+        // Compute Ray Vectors in Global Frame
+        std::vector<mjtNum> ray_pnts(v_samples_ * h_samples_ * 3);
 
-        for (int i = 0; i < samples_; ++i) {
+        for (int i = 0; i < v_samples_ * h_samples_; ++i) {
             // Set start point for this ray
             ray_pnts[3 * i + 0] = pos[0];
             ray_pnts[3 * i + 1] = pos[1];
-            ray_pnts[3 * i + 2] = pos[2];
+            ray_pnts[3 * i + 2] = pos[2]+0.2; // This is the 0.2 m offset.
 
             // Rotate to global frame: vec = mat * local_vec
             mju_mulMatVec(ray_vecs_.data() + 3 * i, mat, local_ray_vecs_.data() + 3 * i, 3, 3);
         }
 
-        // 3. Ray Cast
+        // Ray Cast
         mj_multiRay(model_, data_, ray_pnts.data(), ray_vecs_.data(), NULL, 1, body_exclude,
-                    ray_geomids_.data(), ray_dists_.data(), samples_, sensor_.range_max);
+                    ray_geomids_.data(), ray_dists_.data(), v_samples_ * h_samples_, sensor_.range_max);
 
-        RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 20, 
-            "Lidar raycast done. Origin: [%.2f, %.2f, %.2f], Body Exclude: %d", pos[0], pos[1], pos[2], body_exclude);
+        // RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 40, 
+        //     "Lidar raycast done. Origin: [%.2f, %.2f, %.2f], Body Exclude: %d", pos[0], pos[1], pos[2], body_exclude);
 
-        // 4. Publish PointCloud2
+        // Publish the point cloud
         auto& msg = lidar_publisher_->msg_;
         msg.header.stamp = node_->now();
         msg.header.frame_id = sensor_.frame_id;
         msg.height = 1;
-        msg.width = samples_;
+        msg.width = v_samples_ * h_samples_;
         msg.is_dense = false;
         msg.is_bigendian = false;
 
@@ -115,21 +123,23 @@ void LidarSensor::update()
         sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
 
         int valid_points = 0;
-        for (int i = 0; i < samples_; ++i, ++iter_x, ++iter_y, ++iter_z) {
+        for (int i = 0; i < v_samples_ * h_samples_; ++i, ++iter_x, ++iter_y, ++iter_z) {
             double dist = ray_dists_[i];
 
-            if (dist == -1.0 || dist < sensor_.range_min || dist > sensor_.range_max) {
-                *iter_x = *iter_y = *iter_z = std::numeric_limits<float>::quiet_NaN();
-            } else {
-                valid_points++;
-                *iter_x = static_cast<float>(dist * local_ray_vecs_[3 * i + 0]);
-                *iter_y = static_cast<float>(dist * local_ray_vecs_[3 * i + 1]);
-                *iter_z = 0.0f;
+            if (dist == -1.0 || dist > sensor_.range_max) {
+                dist = sensor_.range_max;
+            } else if (dist < sensor_.range_min) {
+                dist = sensor_.range_min;
             }
+
+            valid_points++; // Used for debugging
+            *iter_x = static_cast<float>(dist * local_ray_vecs_[3 * i + 0]);
+            *iter_y = static_cast<float>(dist * local_ray_vecs_[3 * i + 1]);
+            *iter_z = static_cast<float>(dist * local_ray_vecs_[3 * i + 2]);
         }
 
-        RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000, 
-            "Publishing Lidar Cloud. Valid points: %d/%d", valid_points, samples_);
+        // RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 40, 
+        //     "Publishing Lidar Cloud. Valid points: %d/%d", valid_points, samples_);
 
         lidar_publisher_->unlockAndPublish();
     } else {

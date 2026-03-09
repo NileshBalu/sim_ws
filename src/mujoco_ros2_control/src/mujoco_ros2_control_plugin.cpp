@@ -177,7 +177,9 @@ namespace mujoco_ros2_control {
         } else {
             // No problem with margins
             RCLCPP_INFO(nh_->get_logger(), "loaded mujoco model");
-            
+            for (int i = 0; i < mujoco_model_->nbody; i++) {
+                RCLCPP_INFO(nh_->get_logger(), "Body ID: %d Name: %s", i, mj_id2name(mujoco_model_, mjOBJ_BODY, i));
+            }
         }
 
         // Set simulation frequency

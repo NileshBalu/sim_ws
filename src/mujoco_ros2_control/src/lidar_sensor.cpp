@@ -1,92 +1,140 @@
 #include "mujoco_ros2_sensors/lidar_sensor.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
-namespace mujoco_ros2_sensors {
+#include <cmath>
+#include <limits>
 
-    LidarSensor::LidarSensor(rclcpp::Node::SharedPtr &node, mjModel_ *model, mjData_ *data,
-                           const LidarSensorStruct &sensor, std::atomic<bool>* stop, double frequency) {
-        this->nh_ = node;
-        this->mujoco_data_ = data;
-        this->sensor_ = sensor;
+namespace mujoco_ros2_sensors
+{
 
-        this->publisher_ = nh_->create_publisher<sensor_msgs::msg::PointCloud2>("~/lidar", rclcpp::SystemDefaultsQoS());
-        this->lidar_publisher_ = std::make_unique<LidarPublisher>(publisher_);
+LidarSensor::LidarSensor(
+  rclcpp::Node::SharedPtr &node, mjModel *model, mjData *data,
+  const LidarSensorStruct &sensor, std::atomic<bool>* stop, double frequency)
+: node_(node), model_(model), data_(data), sensor_(sensor)
+{
+    // Initialize publisher
+    publisher_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("~/lidar", rclcpp::SystemDefaultsQoS());
+    lidar_publisher_ = std::make_unique<LidarPublisher>(publisher_);
 
-        // Pre-calculate beam geometry
-        size_t num_beams = sensor_.sensor_ids.size();
-        beam_origins_.reserve(3 * num_beams);
-        beam_directions_.reserve(3 * num_beams);
+    // Read Lidar parameters
+    min_angle_ = node_->declare_parameter<double>("min_angle", -M_PI);
+    max_angle_ = node_->declare_parameter<double>("max_angle", M_PI);
+    samples_ = node_->declare_parameter<int>("samples", 360);
 
-        // Find the reference body (lidar_link) to transform points into its frame
-        int ref_body_id = mj_name2id(model, mjOBJ_BODY, "lidar_link");
-        if (ref_body_id == -1) {
-            RCLCPP_ERROR(nh_->get_logger(), "Body 'lidar_link' not found in MuJoCo model. Lidar points may be wrong.");
-            ref_body_id = 0; // Fallback to world
-        }
-
-        // Get reference frame global pose
-        const double* ref_pos = data->xpos + 3 * ref_body_id;
-        const double* ref_mat = data->xmat + 9 * ref_body_id;
-
-        for (int sensor_id : sensor_.sensor_ids) {
-            int site_id = model->sensor_objid[sensor_id];
-            
-            // Get site global pose
-            const double* site_pos = data->site_xpos + 3 * site_id;
-            const double* site_mat = data->site_xmat + 9 * site_id;
-
-            // Calculate relative position: P_local = R_ref^T * (P_global - P_ref)
-            double rel_pos[3];
-            double diff[3] = {site_pos[0] - ref_pos[0], site_pos[1] - ref_pos[1], site_pos[2] - ref_pos[2]};
-            mju_mulMatTVec(rel_pos, ref_mat, diff, 3, 3);
-
-            // Calculate relative direction (Z-axis of site): D_local = R_ref^T * (R_site * Z_unit)
-            double site_z[3] = {site_mat[2], site_mat[5], site_mat[8]}; // 3rd column of rotation matrix is Z axis
-            double rel_dir[3];
-            mju_mulMatTVec(rel_dir, ref_mat, site_z, 3, 3);
-
-            beam_origins_.insert(beam_origins_.end(), {rel_pos[0], rel_pos[1], rel_pos[2]});
-            beam_directions_.insert(beam_directions_.end(), {rel_dir[0], rel_dir[1], rel_dir[2]});
-        }
-
-
-        timer_ = nh_->create_wall_timer(
-                std::chrono::duration<double>(1.0 / frequency),
-                std::bind(&LidarSensor::update, this));
+    // Allow overriding range limits from ROS params, otherwise use defaults from struct
+    if (node_->has_parameter("range_min")) {
+        sensor_.range_min = node_->get_parameter("range_min").as_double();
+    }
+    if (node_->has_parameter("range_max")) {
+        sensor_.range_max = node_->get_parameter("range_max").as_double();
     }
 
-    void LidarSensor::update() {
-        if (lidar_publisher_->trylock()) {
-            auto& msg = lidar_publisher_->msg_;
-            msg.header.stamp = nh_->now();
-            msg.header.frame_id = "lidar_link";
-            msg.height = 1;
-            msg.width = sensor_.range_sensor_adrs.size();
-            msg.is_dense = false;
-            msg.is_bigendian = false;
+    // Resize buffers for mj_multiRay
+    ray_vecs_.resize(samples_ * 3);
+    local_ray_vecs_.resize(samples_ * 3);
+    ray_dists_.resize(samples_);
+    ray_geomids_.resize(samples_);
 
-            sensor_msgs::PointCloud2Modifier modifier(msg);
-            modifier.setPointCloud2FieldsByString(1, "xyz");
-            modifier.resize(msg.width);
+    // Precompute local vectors
+    double angle_step = (samples_ > 1) ? (max_angle_ - min_angle_) / (samples_ - 1) : 0.0;
+    for (int i = 0; i < samples_; ++i) {
+        double angle = min_angle_ + i * angle_step;
+        local_ray_vecs_[3 * i + 0] = std::cos(angle);
+        local_ray_vecs_[3 * i + 1] = std::sin(angle);
+        local_ray_vecs_[3 * i + 2] = 0.0;
+    }
 
-            sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
-            sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
-            sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
+    RCLCPP_INFO(node_->get_logger(), "Lidar initialized on frame '%s' with %d samples. Range: [%.2f, %.2f]",
+                sensor_.frame_id.c_str(), samples_, sensor_.range_min, sensor_.range_max);
 
-            for (size_t i = 0; i < sensor_.range_sensor_adrs.size(); ++i, ++iter_x, ++iter_y, ++iter_z) {
-                int adr = sensor_.range_sensor_adrs[i];
-                double distance = mujoco_data_->sensordata[adr];
+    timer_ = node_->create_wall_timer(
+            std::chrono::duration<double>(1.0 / frequency),
+            std::bind(&LidarSensor::update, this));
+}
 
-                if (distance < sensor_.range_min || distance > sensor_.range_max) {
-                    *iter_x = *iter_y = *iter_z = std::numeric_limits<float>::quiet_NaN();
-                } else {
-                    *iter_x = static_cast<float>(beam_origins_[3*i] + beam_directions_[3*i] * distance);
-                    *iter_y = static_cast<float>(beam_origins_[3*i+1] + beam_directions_[3*i+1] * distance);
-                    *iter_z = static_cast<float>(beam_origins_[3*i+2] + beam_directions_[3*i+2] * distance);
-                }
+void LidarSensor::update()
+{
+    if (lidar_publisher_->trylock()) {
+        // 1. Get Sensor Pose
+        mjtNum pos[3];
+        mjtNum mat[9];
+        int body_exclude = -1;
+
+        if (!sensor_.body_name.empty()) {
+            int body_id = mj_name2id(model_, mjOBJ_BODY, sensor_.body_name.c_str());
+            if (body_id != -1) {
+                mju_copy3(pos, data_->xpos + 3 * body_id);
+                mju_copy(mat, data_->xmat + 9 * body_id, 9);
+                body_exclude = body_id;
+            } else {
+                RCLCPP_ERROR_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "Lidar body '%s' not found", sensor_.body_name.c_str());
+                lidar_publisher_->unlock();
+                return;
             }
-
-            lidar_publisher_->unlockAndPublish();
+        } else {
+             RCLCPP_ERROR_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "Lidar configuration invalid: no body_name");
+             lidar_publisher_->unlock();
+             return;
         }
 
+        // 2. Compute Ray Vectors in Global Frame
+        // We need to replicate the start point for each ray for mj_multiRay
+        std::vector<mjtNum> ray_pnts(samples_ * 3);
+
+        for (int i = 0; i < samples_; ++i) {
+            // Set start point for this ray
+            ray_pnts[3 * i + 0] = pos[0];
+            ray_pnts[3 * i + 1] = pos[1];
+            ray_pnts[3 * i + 2] = pos[2];
+
+            // Rotate to global frame: vec = mat * local_vec
+            mju_mulMatVec(ray_vecs_.data() + 3 * i, mat, local_ray_vecs_.data() + 3 * i, 3, 3);
+        }
+
+        // 3. Ray Cast
+        mj_multiRay(model_, data_, ray_pnts.data(), ray_vecs_.data(), NULL, 1, body_exclude,
+                    ray_geomids_.data(), ray_dists_.data(), samples_, sensor_.range_max);
+
+        RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 20, 
+            "Lidar raycast done. Origin: [%.2f, %.2f, %.2f], Body Exclude: %d", pos[0], pos[1], pos[2], body_exclude);
+
+        // 4. Publish PointCloud2
+        auto& msg = lidar_publisher_->msg_;
+        msg.header.stamp = node_->now();
+        msg.header.frame_id = sensor_.frame_id;
+        msg.height = 1;
+        msg.width = samples_;
+        msg.is_dense = false;
+        msg.is_bigendian = false;
+
+        sensor_msgs::PointCloud2Modifier modifier(msg);
+        modifier.setPointCloud2FieldsByString(1, "xyz");
+        modifier.resize(msg.width);
+
+        sensor_msgs::PointCloud2Iterator<float> iter_x(msg, "x");
+        sensor_msgs::PointCloud2Iterator<float> iter_y(msg, "y");
+        sensor_msgs::PointCloud2Iterator<float> iter_z(msg, "z");
+
+        int valid_points = 0;
+        for (int i = 0; i < samples_; ++i, ++iter_x, ++iter_y, ++iter_z) {
+            double dist = ray_dists_[i];
+
+            if (dist == -1.0 || dist < sensor_.range_min || dist > sensor_.range_max) {
+                *iter_x = *iter_y = *iter_z = std::numeric_limits<float>::quiet_NaN();
+            } else {
+                valid_points++;
+                *iter_x = static_cast<float>(dist * local_ray_vecs_[3 * i + 0]);
+                *iter_y = static_cast<float>(dist * local_ray_vecs_[3 * i + 1]);
+                *iter_z = 0.0f;
+            }
+        }
+
+        RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000, 
+            "Publishing Lidar Cloud. Valid points: %d/%d", valid_points, samples_);
+
+        lidar_publisher_->unlockAndPublish();
+    } else {
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 5000, "Lidar update: Could not acquire lock on publisher.");
     }
 }
+
+} // namespace mujoco_ros2_sensors

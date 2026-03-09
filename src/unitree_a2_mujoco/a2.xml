@@ -14,6 +14,9 @@
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
     <mesh name="base_link" file="base_link.STL"/>
+    <texture name="grid" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="grid" texture="grid" texuniform="true" texrepeat="2 2" reflectance="0.2"/>
+    <material name="wall_mat" rgba="0.5 0.5 0.9 0.3"/>
     <mesh name="left_front_Link1" file="left_front_Link1.STL"/>
     <mesh name="left_front_Link2" file="left_front_Link2.STL"/>
     <mesh name="left_front_Link3" file="left_front_Link3.STL"/>
@@ -54,6 +57,18 @@
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <geom name="wall1" type="box" size="1.5 0.05 2.5" pos="0 2.38 2.5" material="wall_mat"/>
+    
+    <geom name="wall2" type="box" size="1.5 0.05 2.5" pos="2.26 0.73 2.5" euler="0 0 -1.256" material="wall_mat"/>
+    
+    <geom name="wall3" type="box" size="1.5 0.05 2.5" pos="1.4 -1.92 2.5" euler="0 0 -2.513" material="wall_mat"/>
+    
+    <geom name="wall4" type="box" size="1.5 0.05 2.5" pos="-1.4 -1.92 2.5" euler="0 0 2.513" material="wall_mat"/>
+    
+    <geom name="wall5" type="box" size="1.5 0.05 2.5" pos="-2.26 0.73 2.5" euler="0 0 1.256" material="wall_mat"/>
+
+    <geom name="roof" type="cylinder" size="3 0.05" pos="0 0 5" material="wall_mat"/>
+
     <geom pos="1.5 0.0 0.1" type="box" size="0.5 0.75 1" quat="1.0 0.0 0.0 0.0" />
     <body name="base_link" pos="-1 1 0.7">
       <inertial pos="0.00698259 -0.000712858 0.0128895" quat="-0.00152907 0.699583 -0.00252986 0.714546" mass="19.651" diaginertia="0.472398 0.407723 0.141627"/>
@@ -161,109 +176,6 @@
           </body>
         </body>
       </body>
-      <body name="lidar_link" pos="0.3 0 0.15" euler="0 0 -1.5708">
-          <site name="rf0" pos="0 0 0" euler="0 1.5708 0.00000" group="4"/>
-          <site name="rf1" pos="0 0 0" euler="0 1.5708 0.03173" group="4"/>
-          <site name="rf2" pos="0 0 0" euler="0 1.5708 0.06347" group="4"/>
-          <site name="rf3" pos="0 0 0" euler="0 1.5708 0.09520" group="4"/>
-          <site name="rf4" pos="0 0 0" euler="0 1.5708 0.12693" group="4"/>
-          <site name="rf5" pos="0 0 0" euler="0 1.5708 0.15867" group="4"/>
-          <site name="rf6" pos="0 0 0" euler="0 1.5708 0.19040" group="4"/>
-          <site name="rf7" pos="0 0 0" euler="0 1.5708 0.22213" group="4"/>
-          <site name="rf8" pos="0 0 0" euler="0 1.5708 0.25387" group="4"/>
-          <site name="rf9" pos="0 0 0" euler="0 1.5708 0.28560" group="4"/>
-          <site name="rf10" pos="0 0 0" euler="0 1.5708 0.31733" group="4"/>
-          <site name="rf11" pos="0 0 0" euler="0 1.5708 0.34907" group="4"/>
-          <site name="rf12" pos="0 0 0" euler="0 1.5708 0.38080" group="4"/>
-          <site name="rf13" pos="0 0 0" euler="0 1.5708 0.41253" group="4"/>
-          <site name="rf14" pos="0 0 0" euler="0 1.5708 0.44427" group="4"/>
-          <site name="rf15" pos="0 0 0" euler="0 1.5708 0.47600" group="4"/>
-          <site name="rf16" pos="0 0 0" euler="0 1.5708 0.50773" group="4"/>
-          <site name="rf17" pos="0 0 0" euler="0 1.5708 0.53947" group="4"/>
-          <site name="rf18" pos="0 0 0" euler="0 1.5708 0.57120" group="4"/>
-          <site name="rf19" pos="0 0 0" euler="0 1.5708 0.60293" group="4"/>
-          <site name="rf20" pos="0 0 0" euler="0 1.5708 0.63467" group="4"/>
-          <site name="rf21" pos="0 0 0" euler="0 1.5708 0.66640" group="4"/>
-          <site name="rf22" pos="0 0 0" euler="0 1.5708 0.69813" group="4"/>
-          <site name="rf23" pos="0 0 0" euler="0 1.5708 0.72986" group="4"/>
-          <site name="rf24" pos="0 0 0" euler="0 1.5708 0.76160" group="4"/>
-          <site name="rf25" pos="0 0 0" euler="0 1.5708 0.79333" group="4"/>
-          <site name="rf26" pos="0 0 0" euler="0 1.5708 0.82506" group="4"/>
-          <site name="rf27" pos="0 0 0" euler="0 1.5708 0.85680" group="4"/>
-          <site name="rf28" pos="0 0 0" euler="0 1.5708 0.88853" group="4"/>
-          <site name="rf29" pos="0 0 0" euler="0 1.5708 0.92026" group="4"/>
-          <site name="rf30" pos="0 0 0" euler="0 1.5708 0.95200" group="4"/>
-          <site name="rf31" pos="0 0 0" euler="0 1.5708 0.98373" group="4"/>
-          <site name="rf32" pos="0 0 0" euler="0 1.5708 1.01546" group="4"/>
-          <site name="rf33" pos="0 0 0" euler="0 1.5708 1.04720" group="4"/>
-          <site name="rf34" pos="0 0 0" euler="0 1.5708 1.07893" group="4"/>
-          <site name="rf35" pos="0 0 0" euler="0 1.5708 1.11066" group="4"/>
-          <site name="rf36" pos="0 0 0" euler="0 1.5708 1.14240" group="4"/>
-          <site name="rf37" pos="0 0 0" euler="0 1.5708 1.17413" group="4"/>
-          <site name="rf38" pos="0 0 0" euler="0 1.5708 1.20586" group="4"/>
-          <site name="rf39" pos="0 0 0" euler="0 1.5708 1.23760" group="4"/>
-          <site name="rf40" pos="0 0 0" euler="0 1.5708 1.26933" group="4"/>
-          <site name="rf41" pos="0 0 0" euler="0 1.5708 1.30106" group="4"/>
-          <site name="rf42" pos="0 0 0" euler="0 1.5708 1.33280" group="4"/>
-          <site name="rf43" pos="0 0 0" euler="0 1.5708 1.36453" group="4"/>
-          <site name="rf44" pos="0 0 0" euler="0 1.5708 1.39626" group="4"/>
-          <site name="rf45" pos="0 0 0" euler="0 1.5708 1.42800" group="4"/>
-          <site name="rf46" pos="0 0 0" euler="0 1.5708 1.45973" group="4"/>
-          <site name="rf47" pos="0 0 0" euler="0 1.5708 1.49146" group="4"/>
-          <site name="rf48" pos="0 0 0" euler="0 1.5708 1.52320" group="4"/>
-          <site name="rf49" pos="0 0 0" euler="0 1.5708 1.55493" group="4"/>
-          <site name="rf50" pos="0 0 0" euler="0 1.5708 1.58666" group="4"/>
-          <site name="rf51" pos="0 0 0" euler="0 1.5708 1.61840" group="4"/>
-          <site name="rf52" pos="0 0 0" euler="0 1.5708 1.65013" group="4"/>
-          <site name="rf53" pos="0 0 0" euler="0 1.5708 1.68186" group="4"/>
-          <site name="rf54" pos="0 0 0" euler="0 1.5708 1.71360" group="4"/>
-          <site name="rf55" pos="0 0 0" euler="0 1.5708 1.74533" group="4"/>
-          <site name="rf56" pos="0 0 0" euler="0 1.5708 1.77706" group="4"/>
-          <site name="rf57" pos="0 0 0" euler="0 1.5708 1.80880" group="4"/>
-          <site name="rf58" pos="0 0 0" euler="0 1.5708 1.84053" group="4"/>
-          <site name="rf59" pos="0 0 0" euler="0 1.5708 1.87226" group="4"/>
-          <site name="rf60" pos="0 0 0" euler="0 1.5708 1.90400" group="4"/>
-          <site name="rf61" pos="0 0 0" euler="0 1.5708 1.93573" group="4"/>
-          <site name="rf62" pos="0 0 0" euler="0 1.5708 1.96746" group="4"/>
-          <site name="rf63" pos="0 0 0" euler="0 1.5708 1.99920" group="4"/>
-          <site name="rf64" pos="0 0 0" euler="0 1.5708 2.03093" group="4"/>
-          <site name="rf65" pos="0 0 0" euler="0 1.5708 2.06266" group="4"/>
-          <site name="rf66" pos="0 0 0" euler="0 1.5708 2.09440" group="4"/>
-          <site name="rf67" pos="0 0 0" euler="0 1.5708 2.12613" group="4"/>
-          <site name="rf68" pos="0 0 0" euler="0 1.5708 2.15786" group="4"/>
-          <site name="rf69" pos="0 0 0" euler="0 1.5708 2.18959" group="4"/>
-          <site name="rf70" pos="0 0 0" euler="0 1.5708 2.22133" group="4"/>
-          <site name="rf71" pos="0 0 0" euler="0 1.5708 2.25306" group="4"/>
-          <site name="rf72" pos="0 0 0" euler="0 1.5708 2.28479" group="4"/>
-          <site name="rf73" pos="0 0 0" euler="0 1.5708 2.31653" group="4"/>
-          <site name="rf74" pos="0 0 0" euler="0 1.5708 2.34826" group="4"/>
-          <site name="rf75" pos="0 0 0" euler="0 1.5708 2.37999" group="4"/>
-          <site name="rf76" pos="0 0 0" euler="0 1.5708 2.41173" group="4"/>
-          <site name="rf77" pos="0 0 0" euler="0 1.5708 2.44346" group="4"/>
-          <site name="rf78" pos="0 0 0" euler="0 1.5708 2.47519" group="4"/>
-          <site name="rf79" pos="0 0 0" euler="0 1.5708 2.50693" group="4"/>
-          <site name="rf80" pos="0 0 0" euler="0 1.5708 2.53866" group="4"/>
-          <site name="rf81" pos="0 0 0" euler="0 1.5708 2.57039" group="4"/>
-          <site name="rf82" pos="0 0 0" euler="0 1.5708 2.60213" group="4"/>
-          <site name="rf83" pos="0 0 0" euler="0 1.5708 2.63386" group="4"/>
-          <site name="rf84" pos="0 0 0" euler="0 1.5708 2.66559" group="4"/>
-          <site name="rf85" pos="0 0 0" euler="0 1.5708 2.69733" group="4"/>
-          <site name="rf86" pos="0 0 0" euler="0 1.5708 2.72906" group="4"/>
-          <site name="rf87" pos="0 0 0" euler="0 1.5708 2.76079" group="4"/>
-          <site name="rf88" pos="0 0 0" euler="0 1.5708 2.79253" group="4"/>
-          <site name="rf89" pos="0 0 0" euler="0 1.5708 2.82426" group="4"/>
-          <site name="rf90" pos="0 0 0" euler="0 1.5708 2.85599" group="4"/>
-          <site name="rf91" pos="0 0 0" euler="0 1.5708 2.88773" group="4"/>
-          <site name="rf92" pos="0 0 0" euler="0 1.5708 2.91946" group="4"/>
-          <site name="rf93" pos="0 0 0" euler="0 1.5708 2.95119" group="4"/>
-          <site name="rf94" pos="0 0 0" euler="0 1.5708 2.98293" group="4"/>
-          <site name="rf95" pos="0 0 0" euler="0 1.5708 3.01466" group="4"/>
-          <site name="rf96" pos="0 0 0" euler="0 1.5708 3.04639" group="4"/>
-          <site name="rf97" pos="0 0 0" euler="0 1.5708 3.07813" group="4"/>
-          <site name="rf98" pos="0 0 0" euler="0 1.5708 3.10986" group="4"/>
-          <site name="rf99" pos="0 0 0" euler="0 1.5708 3.14159" group="4"/>
-
-      </body>
     </body>
   </worldbody>
 
@@ -325,108 +237,6 @@
     <framequat name="imu_quat" objtype="site" objname="imu_site" />
     <gyro name="imu_gyro" site="imu_site" />
     <accelerometer name="imu_acc" site="imu_site" />
-
-    <rangefinder name="lidar0" site="rf0" cutoff="5.0"/>
-    <rangefinder name="lidar1" site="rf1" cutoff="5.0"/>
-    <rangefinder name="lidar2" site="rf2" cutoff="5.0"/>
-    <rangefinder name="lidar3" site="rf3" cutoff="5.0"/>
-    <rangefinder name="lidar4" site="rf4" cutoff="5.0"/>
-    <rangefinder name="lidar5" site="rf5" cutoff="5.0"/>
-    <rangefinder name="lidar6" site="rf6" cutoff="5.0"/>
-    <rangefinder name="lidar7" site="rf7" cutoff="5.0"/>
-    <rangefinder name="lidar8" site="rf8" cutoff="5.0"/>
-    <rangefinder name="lidar9" site="rf9" cutoff="5.0"/>
-    <rangefinder name="lidar10" site="rf10" cutoff="5.0"/>
-    <rangefinder name="lidar11" site="rf11" cutoff="5.0"/>
-    <rangefinder name="lidar12" site="rf12" cutoff="5.0"/>
-    <rangefinder name="lidar13" site="rf13" cutoff="5.0"/>
-    <rangefinder name="lidar14" site="rf14" cutoff="5.0"/>
-    <rangefinder name="lidar15" site="rf15" cutoff="5.0"/>
-    <rangefinder name="lidar16" site="rf16" cutoff="5.0"/>
-    <rangefinder name="lidar17" site="rf17" cutoff="5.0"/>
-    <rangefinder name="lidar18" site="rf18" cutoff="5.0"/>
-    <rangefinder name="lidar19" site="rf19" cutoff="5.0"/>
-    <rangefinder name="lidar20" site="rf20" cutoff="5.0"/>
-    <rangefinder name="lidar21" site="rf21" cutoff="5.0"/>
-    <rangefinder name="lidar22" site="rf22" cutoff="5.0"/>
-    <rangefinder name="lidar23" site="rf23" cutoff="5.0"/>
-    <rangefinder name="lidar24" site="rf24" cutoff="5.0"/>
-    <rangefinder name="lidar25" site="rf25" cutoff="5.0"/>
-    <rangefinder name="lidar26" site="rf26" cutoff="5.0"/>
-    <rangefinder name="lidar27" site="rf27" cutoff="5.0"/>
-    <rangefinder name="lidar28" site="rf28" cutoff="5.0"/>
-    <rangefinder name="lidar29" site="rf29" cutoff="5.0"/>
-    <rangefinder name="lidar30" site="rf30" cutoff="5.0"/>
-    <rangefinder name="lidar31" site="rf31" cutoff="5.0"/>
-    <rangefinder name="lidar32" site="rf32" cutoff="5.0"/>
-    <rangefinder name="lidar33" site="rf33" cutoff="5.0"/>
-    <rangefinder name="lidar34" site="rf34" cutoff="5.0"/>
-    <rangefinder name="lidar35" site="rf35" cutoff="5.0"/>
-    <rangefinder name="lidar36" site="rf36" cutoff="5.0"/>
-    <rangefinder name="lidar37" site="rf37" cutoff="5.0"/>
-    <rangefinder name="lidar38" site="rf38" cutoff="5.0"/>
-    <rangefinder name="lidar39" site="rf39" cutoff="5.0"/>
-    <rangefinder name="lidar40" site="rf40" cutoff="5.0"/>
-    <rangefinder name="lidar41" site="rf41" cutoff="5.0"/>
-    <rangefinder name="lidar42" site="rf42" cutoff="5.0"/>
-    <rangefinder name="lidar43" site="rf43" cutoff="5.0"/>
-    <rangefinder name="lidar44" site="rf44" cutoff="5.0"/>
-    <rangefinder name="lidar45" site="rf45" cutoff="5.0"/>
-    <rangefinder name="lidar46" site="rf46" cutoff="5.0"/>
-    <rangefinder name="lidar47" site="rf47" cutoff="5.0"/>
-    <rangefinder name="lidar48" site="rf48" cutoff="5.0"/>
-    <rangefinder name="lidar49" site="rf49" cutoff="5.0"/>
-    <rangefinder name="lidar50" site="rf50" cutoff="5.0"/>
-    <rangefinder name="lidar51" site="rf51" cutoff="5.0"/>
-    <rangefinder name="lidar52" site="rf52" cutoff="5.0"/>
-    <rangefinder name="lidar53" site="rf53" cutoff="5.0"/>
-    <rangefinder name="lidar54" site="rf54" cutoff="5.0"/>
-    <rangefinder name="lidar55" site="rf55" cutoff="5.0"/>
-    <rangefinder name="lidar56" site="rf56" cutoff="5.0"/>
-    <rangefinder name="lidar57" site="rf57" cutoff="5.0"/>
-    <rangefinder name="lidar58" site="rf58" cutoff="5.0"/>
-    <rangefinder name="lidar59" site="rf59" cutoff="5.0"/>
-    <rangefinder name="lidar60" site="rf60" cutoff="5.0"/>
-    <rangefinder name="lidar61" site="rf61" cutoff="5.0"/>
-    <rangefinder name="lidar62" site="rf62" cutoff="5.0"/>
-    <rangefinder name="lidar63" site="rf63" cutoff="5.0"/>
-    <rangefinder name="lidar64" site="rf64" cutoff="5.0"/>
-    <rangefinder name="lidar65" site="rf65" cutoff="5.0"/>
-    <rangefinder name="lidar66" site="rf66" cutoff="5.0"/>
-    <rangefinder name="lidar67" site="rf67" cutoff="5.0"/>
-    <rangefinder name="lidar68" site="rf68" cutoff="5.0"/>
-    <rangefinder name="lidar69" site="rf69" cutoff="5.0"/>
-    <rangefinder name="lidar70" site="rf70" cutoff="5.0"/>
-    <rangefinder name="lidar71" site="rf71" cutoff="5.0"/>
-    <rangefinder name="lidar72" site="rf72" cutoff="5.0"/>
-    <rangefinder name="lidar73" site="rf73" cutoff="5.0"/>
-    <rangefinder name="lidar74" site="rf74" cutoff="5.0"/>
-    <rangefinder name="lidar75" site="rf75" cutoff="5.0"/>
-    <rangefinder name="lidar76" site="rf76" cutoff="5.0"/>
-    <rangefinder name="lidar77" site="rf77" cutoff="5.0"/>
-    <rangefinder name="lidar78" site="rf78" cutoff="5.0"/>
-    <rangefinder name="lidar79" site="rf79" cutoff="5.0"/>
-    <rangefinder name="lidar80" site="rf80" cutoff="5.0"/>
-    <rangefinder name="lidar81" site="rf81" cutoff="5.0"/>
-    <rangefinder name="lidar82" site="rf82" cutoff="5.0"/>
-    <rangefinder name="lidar83" site="rf83" cutoff="5.0"/>
-    <rangefinder name="lidar84" site="rf84" cutoff="5.0"/>
-    <rangefinder name="lidar85" site="rf85" cutoff="5.0"/>
-    <rangefinder name="lidar86" site="rf86" cutoff="5.0"/>
-    <rangefinder name="lidar87" site="rf87" cutoff="5.0"/>
-    <rangefinder name="lidar88" site="rf88" cutoff="5.0"/>
-    <rangefinder name="lidar89" site="rf89" cutoff="5.0"/>
-    <rangefinder name="lidar90" site="rf90" cutoff="5.0"/>
-    <rangefinder name="lidar91" site="rf91" cutoff="5.0"/>
-    <rangefinder name="lidar92" site="rf92" cutoff="5.0"/>
-    <rangefinder name="lidar93" site="rf93" cutoff="5.0"/>
-    <rangefinder name="lidar94" site="rf94" cutoff="5.0"/>
-    <rangefinder name="lidar95" site="rf95" cutoff="5.0"/>
-    <rangefinder name="lidar96" site="rf96" cutoff="5.0"/>
-    <rangefinder name="lidar97" site="rf97" cutoff="5.0"/>
-    <rangefinder name="lidar98" site="rf98" cutoff="5.0"/>
-    <rangefinder name="lidar99" site="rf99" cutoff="5.0"/>
-
 
     <framepos name="frame_pos" objtype="site" objname="imu_site" />
     <framelinvel name="frame_vel" objtype="site" objname="imu_site" />

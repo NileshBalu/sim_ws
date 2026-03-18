@@ -35,7 +35,7 @@ def generate_launch_description():
                 scene_path,  # argv[1]: Path to the model XML (resolved at runtime)
                 mujoco_dir   # argv[2]: Path to the directory containing config.yaml
             ],
-            # Set CWD to the a2 folder so MuJoCo finds the 'assets/' folder
-            cwd=os.path.join(description_dir, 'a2')
+            # Set CWD to the a2 folder so MuJoCo finds the 'meshes/' folder
+            cwd=os.path.join(description_dir, 'mjcf')
         )
     ])

@@ -688,7 +688,7 @@ int main(int argc, char **argv)
 
   if(param::config.robot_scene.is_relative()) {
     std::string a2_description_share = ament_index_cpp::get_package_share_directory("a2_description");
-    param::config.robot_scene = std::filesystem::path(a2_description_share) / "a2" / param::config.robot_scene;
+    param::config.robot_scene = std::filesystem::path(a2_description_share) / "mjcf" / param::config.robot_scene;
   }
 
   // --- Prevent Unitree DDS vs ROS 2 DDS Conflicts ---

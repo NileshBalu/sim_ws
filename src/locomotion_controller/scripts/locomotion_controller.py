@@ -93,8 +93,6 @@ def load_model(pt_path, logger):
         obs_std  = torch.clamp(obs_std_direct, min=1e-5)
     else:
         logger.warn("Normalization stats not found in state_dict")
-        obs_mean = obs_mean_onnx
-        obs_std  = obs_std_onnx
 
     logger.info(f"obs_mean[:6] = {obs_mean[:6].tolist()}")
     logger.info(f"obs_std[:6]  = {obs_std[:6].tolist()}")
@@ -106,9 +104,7 @@ class LocomotionController(Node):
     def __init__(self):
         super().__init__('locomotion_controller')
 
-        # ------------------------------------------------------------------ #
-        # 1. Load model                                                        #
-        # ------------------------------------------------------------------ #
+        # Load model                                                        #
         pkg_share_dir = get_package_share_directory('locomotion_controller')
         default_pt_path = os.path.join(pkg_share_dir, 'models', 'model_1600.pt')
         self.declare_parameter('model_path', default_pt_path)
@@ -132,30 +128,11 @@ class LocomotionController(Node):
             self.get_logger().fatal(f"Failed to load model: {e}")
             raise SystemExit
 
-        # ------------------------------------------------------------------ #
-        # 2. Joint convention                                                  #
-        # ------------------------------------------------------------------ #
-        #
-        # MuJoCo XML body order -> RL env indices 0-11:
-        #   FL_hip(0),  FL_thigh(1),  FL_calf(2)
-        #   RL_hip(3),  RL_thigh(4),  RL_calf(5)
-        #   FR_hip(6),  FR_thigh(7),  FR_calf(8)
-        #   RR_hip(9),  RR_thigh(10), RR_calf(11)
-        #
-        # Unitree A2 SDK order -> indices 0-11:
-        #   FR_hip(0),  FR_thigh(1),  FR_calf(2)
-        #   FL_hip(3),  FL_thigh(4),  FL_calf(5)
-        #   RR_hip(6),  RR_thigh(7),  RR_calf(8)
-        #   RL_hip(9),  RL_thigh(10), RL_calf(11)
-        #
-        #                   RL: FL  FL  FL  FR   FR   FR  RL   RL   RL  RR  RR  RR
+        # Joint convention                                                  #
+        # Map between the XML joint order and the RL trainer joint order
         self.rl_to_unitree = [3,  4,  5,  0,  1,  2,  9,  10,  11,  6,  7,  8]
 
-        # Hip sign: Unitree_hip = -1 * MuJoCo_hip for all legs.
-        # Confirmed: INIT_STATE R_hip=+0.1 -> Unitree FR~=-0.042 (sign flip).
-        # self.hip_sign_unitree = [-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]
-
-        # Default joint positions from INIT_STATE in RL order (FL, FR, RL, RR)
+        # Default joint pos used in the RL trainer
         self.default_joint_pos_rl = [
             -0.1,  0.9, -1.8,   # FL
              0.1,  0.9, -1.8,   # FR
@@ -166,10 +143,10 @@ class LocomotionController(Node):
         # Sit/stand targets in Unitree SDK order (FR, FL, RR, RL)
         # Hip values = MuJoCo default * hip_sign_unitree
         self.target_pos_stand = [
-            -0.1,  0.9, -1.8,   # FR: +0.1 * -1 = -0.1
-             0.1,  0.9, -1.8,   # FL: -0.1 * -1 = +0.1
-            -0.1,  0.9, -1.8,   # RR: +0.1 * -1 = -0.1
-             0.1,  0.9, -1.8,   # RL: -0.1 * -1 = +0.1
+             0.0,  0.67, -1.3,   # FR
+             0.0,  0.67, -1.3,   # FL
+            -0.2,  0.67, -1.3,   # RR
+             0.2,  0.67, -1.3,   # RL
         ]
         self.target_pos_sit = [
              0.0,  1.36, -2.65,   # FR
@@ -178,28 +155,20 @@ class LocomotionController(Node):
              0.2,  1.36, -2.65,   # RL
         ]
 
-        # ------------------------------------------------------------------ #
-        # 3. PD gains matching training actuator config exactly               #
-        # ------------------------------------------------------------------ #
-        # A2_ACTUATOR_HIP:   stiffness=100, damping=4
-        # A2_ACTUATOR_THIGH: stiffness=100, damping=4
-        # A2_ACTUATOR_CALF:  stiffness=150, damping=6
+        # PD gains matching training actuator config exactly               #
+        
         self.kp_hip   = 100.0;  self.kd_hip   = 4.0
         self.kp_thigh = 100.0;  self.kd_thigh = 4.0
         self.kp_calf  = 150.0;  self.kd_calf  = 6.0
         self.joint_type = [0, 1, 2,  0, 1, 2,  0, 1, 2,  0, 1, 2]
 
-        # ------------------------------------------------------------------ #
-        # 4. Timing — from training config                                    #
-        # ------------------------------------------------------------------ #
+        # Timing — from training config                                    #
         # sim timestep=0.005, decimation=4 -> policy at 50 Hz
         # Control loop at 500 Hz, policy evaluated every DECIMATION=10 ticks
         self.DECIMATION   = 10
         self.control_tick = 0
 
-        # ------------------------------------------------------------------ #
-        # 5. State variables                                                   #
-        # ------------------------------------------------------------------ #
+        # State variables                                                   #
         self.last_cmd_vec      = [0.0, 0.0, 0.0]
         self.current_joint_pos = torch.zeros(12)
         self.current_joint_vel = [0.0] * 12
@@ -214,9 +183,7 @@ class LocomotionController(Node):
         self.first_motion_flag  = 1
         self.loco_to_stand_flag = 0
 
-        # ------------------------------------------------------------------ #
-        # 6. LowCmd initialisation                                             #
-        # ------------------------------------------------------------------ #
+        # LowCmd initialisation                                             #
         self.low_cmd = LowCmd()
         self.low_cmd.head[0]    = 0xFE
         self.low_cmd.head[1]    = 0xEF
@@ -230,23 +197,15 @@ class LocomotionController(Node):
             self.low_cmd.motor_cmd[i].kd   = 0.0
             self.low_cmd.motor_cmd[i].tau  = 0.0
 
-        # ------------------------------------------------------------------ #
-        # 7. ROS2 pub/sub                                                      #
-        # ------------------------------------------------------------------ #
-        self.cmd_sub = self.create_subscription(
-            Twist, '/cmd_vel', self.cmd_cb, 10)
-        self.mode_sub = self.create_subscription(
-            Int32, '/mode', self.mode_cb, 10)
-        qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
-        self.state_sub = self.create_subscription(
-            LowState, '/lowstate', self.state_cb, qos)
+        # ROS2 pub/sub                                                      #
+        self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_cb, 10)
+        self.mode_sub = self.create_subscription(Int32, '/mode', self.mode_cb, 10)
+        self.state_sub = self.create_subscription(LowState, '/lowstate', self.state_cb,10)
         self.low_cmd_pub = self.create_publisher(LowCmd, '/lowcmd', 10)
         self.timer = self.create_timer(0.002, self.control_loop)
         self.get_logger().info("Locomotion controller ready.")
 
-    # ---------------------------------------------------------------------- #
     # Callbacks                                                                #
-    # ---------------------------------------------------------------------- #
 
     def cmd_cb(self, msg):
         self.last_cmd_vec = [msg.linear.x, msg.linear.y, msg.angular.z]
@@ -276,17 +235,19 @@ class LocomotionController(Node):
             -1.0 + 2.0 * (x*x + y*y),
         ]
 
-    # ---------------------------------------------------------------------- #
     # Helpers                                                                  #
-    # ---------------------------------------------------------------------- #
-
     def _get_gains(self, u_idx, stand_mode=False):
         jtype = self.joint_type[u_idx]
-        if jtype == 0:   kp, kd = self.kp_hip,   self.kd_hip
-        elif jtype == 1: kp, kd = self.kp_thigh, self.kd_thigh
-        else:            kp, kd = self.kp_calf,  self.kd_calf
+        if jtype == 0:   
+            kp, kd = self.kp_hip,   self.kd_hip
+        elif jtype == 1:
+            kp, kd = self.kp_thigh, self.kd_thigh
+        else:
+            kp, kd = self.kp_calf,  self.kd_calf
+        
         if stand_mode:
-            kp *= 2.0
+            kp *= 5.0
+        
         return kp, kd
 
     def _set_motor(self, u_idx, q, stand_mode=False):
@@ -297,10 +258,7 @@ class LocomotionController(Node):
         self.low_cmd.motor_cmd[u_idx].kd  = kd
         self.low_cmd.motor_cmd[u_idx].tau = 0.0
 
-    # ---------------------------------------------------------------------- #
     # Control loop — 500 Hz                                                   #
-    # ---------------------------------------------------------------------- #
-
     def control_loop(self):
         self.motiontime  += 1
         self.control_tick += 1
@@ -345,12 +303,12 @@ class LocomotionController(Node):
 
         for i in range(12):
             u_idx  = self.rl_to_unitree[i]
-            pos_mj = self.current_joint_pos[u_idx].item()# * self.hip_sign_unitree[u_idx]
+            pos_mj = self.current_joint_pos[u_idx].item()
             obs.append(pos_mj - self.default_joint_pos_rl[i])
 
         for i in range(12):
             u_idx  = self.rl_to_unitree[i]
-            vel_mj = self.current_joint_vel[u_idx]# * self.hip_sign_unitree[u_idx]
+            vel_mj = self.current_joint_vel[u_idx]
             obs.append(vel_mj)
 
         obs.extend(self.last_action)
@@ -372,7 +330,7 @@ class LocomotionController(Node):
         for i in range(12):
             target_mj      = action[0, i].item() * action_scale + self.default_joint_pos_rl[i]
             u_idx          = self.rl_to_unitree[i]
-            target_unitree = target_mj #* self.hip_sign_unitree[u_idx]
+            target_unitree = target_mj
             self._set_motor(u_idx, target_unitree)
 
         self.low_cmd_pub.publish(self.low_cmd)

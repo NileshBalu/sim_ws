@@ -1,0 +1,50 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Status1
+        - /RobotModel1
+        - /TF1
+      Splitter Ratio: 0.5
+    Tree Height: 550
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 160
+      Enabled: true
+      Name: Grid
+    - Class: rviz_default_plugins/RobotModel
+      Description Topic:
+        Value: /robot_description
+      Enabled: true
+      Name: RobotModel
+      Visual Enabled: true
+      Collision Enabled: false
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Arrows: true
+      Show Names: true
+  Global Options:
+    Fixed Frame: base_link
+    Publish TRACE: true
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 4.5
+      Name: Current View
+      Pitch: 0.33
+      Yaw: 0.78
+      Target Frame: base_link

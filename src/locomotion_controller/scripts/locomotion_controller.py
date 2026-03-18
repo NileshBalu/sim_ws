@@ -2,174 +2,381 @@
 import os
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import Twist
-from unitree_go.msg import LowCmd
+from std_msgs.msg import Int32
+from unitree_go.msg import LowCmd, LowState
 import torch
 import torch.nn as nn
 from ament_index_python.packages import get_package_share_directory
 
-class ActorNet(nn.Module):
-    def __init__(self, num_obs=15, num_actions=12):
-        super().__init__()
-        
-        # Observation Normalization (from obs_normalization=True in config)
-        self.register_buffer('running_mean', torch.zeros(num_obs))
-        self.register_buffer('running_var', torch.ones(num_obs))
 
-        # Default rsl_rl architecture. Update if you changed it in config!
+class ActorNet(nn.Module):
+    def __init__(self, num_obs=45, num_actions=12):
+        super().__init__()
+        self.register_buffer('obs_mean', torch.zeros(num_obs))
+        self.register_buffer('obs_std',  torch.ones(num_obs))
         self.actor = nn.Sequential(
-            nn.Linear(num_obs, 512),
-            nn.ELU(),
-            nn.Linear(512, 256),
-            nn.ELU(),
-            nn.Linear(256, 128),
-            nn.ELU(),
+            nn.Linear(num_obs, 512), nn.ELU(),
+            nn.Linear(512, 256),    nn.ELU(),
+            nn.Linear(256, 128),    nn.ELU(),
             nn.Linear(128, num_actions)
         )
 
     def forward(self, x):
-        # Apply observation normalization
-        x = (x - self.running_mean) / torch.sqrt(self.running_var + 1e-5)
+        x = (x - self.obs_mean) / self.obs_std
+        x = torch.clamp(x, -5.0, 5.0)
         return self.actor(x)
+
+
+def load_model(pt_path, logger):
+    checkpoint = torch.load(pt_path, map_location='cpu')
+
+    if isinstance(checkpoint, dict) and 'actor_state_dict' in checkpoint:
+        state_dict = checkpoint['actor_state_dict']
+    elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    else:
+        state_dict = checkpoint
+
+    logger.info(f"actor_state_dict keys: {list(state_dict.keys())}")
+
+    # Extract MLP weights/biases — skip normalizer and critic keys
+    weights = []
+    biases  = []
+    for k, v in state_dict.items():
+        if not isinstance(v, torch.Tensor):
+            continue
+        if 'critic' in k or 'normalizer' in k:
+            continue
+        if 'weight' in k and len(v.shape) == 2:
+            weights.append(v)
+        elif 'bias' in k and len(v.shape) == 1:
+            biases.append(v)
+
+    if not weights:
+        raise RuntimeError(
+            f"No actor MLP weights found. Keys: {list(state_dict.keys())}")
+
+    logger.info(f"Found {len(weights)} weight matrices: {[list(w.shape) for w in weights]}")
+
+    actor_dict = {}
+    for i, (w, b) in enumerate(zip(weights, biases)):
+        actor_dict[f"actor.{i * 2}.weight"] = w
+        actor_dict[f"actor.{i * 2}.bias"]   = b
+
+    num_obs     = weights[0].shape[1]
+    num_actions = weights[-1].shape[0]
+
+    # Load normalizer stats from state_dict.
+    # The checkpoint contains: obs_normalizer._mean, obs_normalizer._var, obs_normalizer._std
+    # Prefer _std (already standard deviation) over _var (needs sqrt).
+    obs_mean_direct = state_dict.get('obs_normalizer._mean', None)
+    obs_std_direct  = state_dict.get('obs_normalizer._std',  None)
+    obs_var_direct  = state_dict.get('obs_normalizer._var',  None)
+
+    if obs_mean_direct is not None:
+        obs_mean_direct = obs_mean_direct.float().view(-1)
+        logger.info(f"Loaded obs_normalizer._mean, shape={obs_mean_direct.shape}")
+
+    if obs_std_direct is not None:
+        obs_std_direct = obs_std_direct.float().view(-1)
+        logger.info(f"Loaded obs_normalizer._std directly, shape={obs_std_direct.shape}")
+    elif obs_var_direct is not None:
+        obs_std_direct = torch.sqrt(obs_var_direct.float().view(-1) + 1e-5)
+        logger.info("Converted obs_normalizer._var to std via sqrt(var + 1e-5)")
+
+
+    if obs_mean_direct is not None and obs_std_direct is not None:
+        logger.info("Using normalization stats from checkpoint state_dict.")
+        obs_mean = obs_mean_direct
+        obs_std  = torch.clamp(obs_std_direct, min=1e-5)
+    else:
+        logger.warn("Normalization stats not found in state_dict")
+        obs_mean = obs_mean_onnx
+        obs_std  = obs_std_onnx
+
+    logger.info(f"obs_mean[:6] = {obs_mean[:6].tolist()}")
+    logger.info(f"obs_std[:6]  = {obs_std[:6].tolist()}")
+
+    return actor_dict, num_obs, num_actions, obs_mean, obs_std
+
 
 class LocomotionController(Node):
     def __init__(self):
         super().__init__('locomotion_controller')
 
-        # 1. Load Parameters
+        # ------------------------------------------------------------------ #
+        # 1. Load model                                                        #
+        # ------------------------------------------------------------------ #
         pkg_share_dir = get_package_share_directory('locomotion_controller')
-        default_model_path = os.path.join(pkg_share_dir, 'models', 'model_1600.pt')
+        default_pt_path = os.path.join(pkg_share_dir, 'models', 'model_1600.pt')
+        self.declare_parameter('model_path', default_pt_path)
+        pt_path = self.get_parameter('model_path').get_parameter_value().string_value
+        self.get_logger().info(f"Checkpoint: {pt_path}")
 
-        self.declare_parameter('model_path', default_model_path)
-        model_path = self.get_parameter('model_path').get_parameter_value().string_value
-        self.get_logger().info(f"Model Path: {model_path}")
-
-        # 2. Build the Network and Load the raw rsl_rl Weights
         try:
-            self.model = ActorNet(num_obs=15, num_actions=12)
-            checkpoint = torch.load(model_path, map_location='cpu')
-            
-            # Get the correct state dictionary depending on the framework
-            if isinstance(checkpoint, dict) and 'actor_state_dict' in checkpoint:
-                state_dict = checkpoint['actor_state_dict']
-            elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                state_dict = checkpoint['model_state_dict']
-            else:
-                state_dict = checkpoint
-            
-            # 1. Extract weight matrices and bias vectors sequentially (agnostic to exact key names!)
-            weights = [v for k, v in state_dict.items() if isinstance(v, torch.Tensor) and 'critic' not in k and 'weight' in k and len(v.shape) == 2]
-            biases = [v for k, v in state_dict.items() if isinstance(v, torch.Tensor) and 'critic' not in k and 'bias' in k and len(v.shape) == 1]
-            
-            if not weights:
-                self.get_logger().fatal(f"Available keys in checkpoint: {list(state_dict.keys())}")
-                raise SystemExit("Could not find actor weights in checkpoint!")
-                
-            actor_dict = {}
-            # Reconstruct exactly what ActorNet expects (actor.0.weight, actor.2.weight...)
-            for i, (w, b) in enumerate(zip(weights, biases)):
-                actor_dict[f"actor.{i*2}.weight"] = w
-                actor_dict[f"actor.{i*2}.bias"] = b
-                
-            # 2. Extract observation normalization parameters if they exist
-            for k, v in state_dict.items():
-                if not isinstance(v, torch.Tensor) or 'critic' in k: 
-                    continue
-                if 'mean' in k and len(v.shape) == 1:
-                    actor_dict['running_mean'] = v.view(-1)
-                elif 'var' in k and len(v.shape) == 1:
-                    actor_dict['running_var'] = v.view(-1)
-
-            # 3. Dynamically determine num_obs and num_actions
-            num_obs = weights[0].shape[1]
-            if 'running_mean' in actor_dict:
-                num_obs = actor_dict['running_mean'].shape[0]
-            num_actions = weights[-1].shape[0]
-                
-            self.get_logger().info(f"Dynamically inferred: num_obs={num_obs}, num_actions={num_actions}")
-            
-            # 4. Instantiate model with dynamic shapes and load
+            actor_dict, num_obs, num_actions, obs_mean, obs_std = \
+                load_model(pt_path, self.get_logger())
             self.model = ActorNet(num_obs=num_obs, num_actions=num_actions)
-            self.model.load_state_dict(actor_dict, strict=False)
-            self.model.eval() 
-            self.get_logger().info(f"Successfully loaded model: {model_path}")
+            result = self.model.load_state_dict(actor_dict, strict=False)
+            self.get_logger().info(
+                f"load_state_dict: missing={result.missing_keys}, "
+                f"unexpected={result.unexpected_keys}")
+            self.model.obs_mean.copy_(obs_mean[:num_obs])
+            self.model.obs_std.copy_(obs_std[:num_obs])
+            self.model.eval()
+            self.get_logger().info(
+                f"Model ready. num_obs={num_obs}, num_actions={num_actions}")
         except Exception as e:
-            self.get_logger().fatal(f"Error loading the model!\nPyTorch says: {e}")
+            self.get_logger().fatal(f"Failed to load model: {e}")
             raise SystemExit
 
-        # 3. Subscribers & Publishers
-        self.cmd_sub = self.create_subscription(
-            Twist, '/cmd_vel', self.cmd_cb, 10)
-        
-        self.low_cmd_pub = self.create_publisher(LowCmd, '/lowcmd', 10)
-        
-        # State Initialization
-        self.last_cmd_vec = [0.0, 0.0, 0.0]
+        # ------------------------------------------------------------------ #
+        # 2. Joint convention                                                  #
+        # ------------------------------------------------------------------ #
+        #
+        # MuJoCo XML body order -> RL env indices 0-11:
+        #   FL_hip(0),  FL_thigh(1),  FL_calf(2)
+        #   RL_hip(3),  RL_thigh(4),  RL_calf(5)
+        #   FR_hip(6),  FR_thigh(7),  FR_calf(8)
+        #   RR_hip(9),  RR_thigh(10), RR_calf(11)
+        #
+        # Unitree A2 SDK order -> indices 0-11:
+        #   FR_hip(0),  FR_thigh(1),  FR_calf(2)
+        #   FL_hip(3),  FL_thigh(4),  FL_calf(5)
+        #   RR_hip(6),  RR_thigh(7),  RR_calf(8)
+        #   RL_hip(9),  RL_thigh(10), RL_calf(11)
+        #
+        #                   RL: FL  FL  FL  FR   FR   FR  RL   RL   RL  RR  RR  RR
+        self.rl_to_unitree = [3,  4,  5,  0,  1,  2,  9,  10,  11,  6,  7,  8]
+
+        # Hip sign: Unitree_hip = -1 * MuJoCo_hip for all legs.
+        # Confirmed: INIT_STATE R_hip=+0.1 -> Unitree FR~=-0.042 (sign flip).
+        # self.hip_sign_unitree = [-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1]
+
+        # Default joint positions from INIT_STATE in RL order (FL, FR, RL, RR)
+        self.default_joint_pos_rl = [
+            -0.1,  0.9, -1.8,   # FL
+             0.1,  0.9, -1.8,   # FR
+            -0.1,  0.9, -1.8,   # RL
+             0.1,  0.9, -1.8,   # RR
+        ]
+
+        # Sit/stand targets in Unitree SDK order (FR, FL, RR, RL)
+        # Hip values = MuJoCo default * hip_sign_unitree
+        self.target_pos_stand = [
+            -0.1,  0.9, -1.8,   # FR: +0.1 * -1 = -0.1
+             0.1,  0.9, -1.8,   # FL: -0.1 * -1 = +0.1
+            -0.1,  0.9, -1.8,   # RR: +0.1 * -1 = -0.1
+             0.1,  0.9, -1.8,   # RL: -0.1 * -1 = +0.1
+        ]
+        self.target_pos_sit = [
+             0.0,  1.36, -2.65,   # FR
+             0.0,  1.36, -2.65,   # FL
+            -0.2,  1.36, -2.65,   # RR
+             0.2,  1.36, -2.65,   # RL
+        ]
+
+        # ------------------------------------------------------------------ #
+        # 3. PD gains matching training actuator config exactly               #
+        # ------------------------------------------------------------------ #
+        # A2_ACTUATOR_HIP:   stiffness=100, damping=4
+        # A2_ACTUATOR_THIGH: stiffness=100, damping=4
+        # A2_ACTUATOR_CALF:  stiffness=150, damping=6
+        self.kp_hip   = 100.0;  self.kd_hip   = 4.0
+        self.kp_thigh = 100.0;  self.kd_thigh = 4.0
+        self.kp_calf  = 150.0;  self.kd_calf  = 6.0
+        self.joint_type = [0, 1, 2,  0, 1, 2,  0, 1, 2,  0, 1, 2]
+
+        # ------------------------------------------------------------------ #
+        # 4. Timing — from training config                                    #
+        # ------------------------------------------------------------------ #
+        # sim timestep=0.005, decimation=4 -> policy at 50 Hz
+        # Control loop at 500 Hz, policy evaluated every DECIMATION=10 ticks
+        self.DECIMATION   = 10
+        self.control_tick = 0
+
+        # ------------------------------------------------------------------ #
+        # 5. State variables                                                   #
+        # ------------------------------------------------------------------ #
+        self.last_cmd_vec      = [0.0, 0.0, 0.0]
         self.current_joint_pos = torch.zeros(12)
-        self.default_joint_pos = [0.0, 0.67, -1.3, 0.0, 0.67, -1.3, 0.0, 0.67, -1.3, 0.0, 0.67, -1.3]
-        self.kp = 100.0
-        self.kd = 5.0
+        self.current_joint_vel = [0.0] * 12
+        self.base_ang_vel      = [0.0, 0.0, 0.0]
+        self.projected_gravity = [0.0, 0.0, -1.0]
+        self.last_action       = [0.0] * 12
 
-        # Initialize the LowCmd message structure
+        self.current_mode       = 1
+        self.previous_mode      = 1
+        self.motiontime         = 1
+        self.duration           = 1000
+        self.first_motion_flag  = 1
+        self.loco_to_stand_flag = 0
+
+        # ------------------------------------------------------------------ #
+        # 6. LowCmd initialisation                                             #
+        # ------------------------------------------------------------------ #
         self.low_cmd = LowCmd()
-        self.low_cmd.head[0] = 0xFE
-        self.low_cmd.head[1] = 0xEF
+        self.low_cmd.head[0]    = 0xFE
+        self.low_cmd.head[1]    = 0xEF
         self.low_cmd.level_flag = 0xFF
-        self.low_cmd.gpio = 0
-
+        self.low_cmd.gpio       = 0
         for i in range(20):
             self.low_cmd.motor_cmd[i].mode = 0x01
-            self.low_cmd.motor_cmd[i].q = 2.146E+9    # PosStopF equivalent
-            self.low_cmd.motor_cmd[i].kp = 0.0
-            self.low_cmd.motor_cmd[i].dq = 16000.0    # VelStopF equivalent
-            self.low_cmd.motor_cmd[i].kd = 0.0
-            self.low_cmd.motor_cmd[i].tau = 0.0
+            self.low_cmd.motor_cmd[i].q    = 2.146e+9
+            self.low_cmd.motor_cmd[i].kp   = 0.0
+            self.low_cmd.motor_cmd[i].dq   = 16000.0
+            self.low_cmd.motor_cmd[i].kd   = 0.0
+            self.low_cmd.motor_cmd[i].tau  = 0.0
 
-        # 4. Control Timer (50Hz)
-        self.timer = self.create_timer(0.02, self.control_loop)
+        # ------------------------------------------------------------------ #
+        # 7. ROS2 pub/sub                                                      #
+        # ------------------------------------------------------------------ #
+        self.cmd_sub = self.create_subscription(
+            Twist, '/cmd_vel', self.cmd_cb, 10)
+        self.mode_sub = self.create_subscription(
+            Int32, '/mode', self.mode_cb, 10)
+        qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
+        self.state_sub = self.create_subscription(
+            LowState, '/lowstate', self.state_cb, qos)
+        self.low_cmd_pub = self.create_publisher(LowCmd, '/lowcmd', 10)
+        self.timer = self.create_timer(0.002, self.control_loop)
+        self.get_logger().info("Locomotion controller ready.")
 
-    def cmd_cb(self, msg: Twist):
+    # ---------------------------------------------------------------------- #
+    # Callbacks                                                                #
+    # ---------------------------------------------------------------------- #
+
+    def cmd_cb(self, msg):
         self.last_cmd_vec = [msg.linear.x, msg.linear.y, msg.angular.z]
 
+    def mode_cb(self, msg):
+        self.previous_mode = self.current_mode
+        self.current_mode  = msg.data
+        if self.current_mode != self.previous_mode:
+            self.motiontime         = 0
+            self.first_motion_flag  = 0
+            self.loco_to_stand_flag = 1 if self.previous_mode == 3 else 0
+            if self.current_mode == 3:
+                self.last_action  = [0.0] * 12
+                self.control_tick = 0
+
+    def state_cb(self, msg):
+        for i in range(12):
+            self.current_joint_pos[i] = msg.motor_state[i].q
+            self.current_joint_vel[i] = msg.motor_state[i].dq
+        self.base_ang_vel = list(msg.imu_state.gyroscope)
+        # Projected gravity: rotate [0,0,-1] into robot body frame
+        # unitree_mujoco quaternion order: [w, x, y, z]
+        w, x, y, z = msg.imu_state.quaternion
+        self.projected_gravity = [
+            2.0 * (w*y - x*z),
+            -2.0 * (w*x + y*z),
+            -1.0 + 2.0 * (x*x + y*y),
+        ]
+
+    # ---------------------------------------------------------------------- #
+    # Helpers                                                                  #
+    # ---------------------------------------------------------------------- #
+
+    def _get_gains(self, u_idx, stand_mode=False):
+        jtype = self.joint_type[u_idx]
+        if jtype == 0:   kp, kd = self.kp_hip,   self.kd_hip
+        elif jtype == 1: kp, kd = self.kp_thigh, self.kd_thigh
+        else:            kp, kd = self.kp_calf,  self.kd_calf
+        if stand_mode:
+            kp *= 2.0
+        return kp, kd
+
+    def _set_motor(self, u_idx, q, stand_mode=False):
+        kp, kd = self._get_gains(u_idx, stand_mode)
+        self.low_cmd.motor_cmd[u_idx].q   = float(q)
+        self.low_cmd.motor_cmd[u_idx].dq  = 0.0
+        self.low_cmd.motor_cmd[u_idx].kp  = kp
+        self.low_cmd.motor_cmd[u_idx].kd  = kd
+        self.low_cmd.motor_cmd[u_idx].tau = 0.0
+
+    # ---------------------------------------------------------------------- #
+    # Control loop — 500 Hz                                                   #
+    # ---------------------------------------------------------------------- #
+
     def control_loop(self):
-        # --- STEP 1: PREPARE OBSERVATIONS ---
-        obs_vec = self.last_cmd_vec.copy()
-        obs_vec.extend(self.current_joint_pos.tolist())
+        self.motiontime  += 1
+        self.control_tick += 1
+        t = min(self.motiontime / self.duration, 1.0)
 
-        # Pad or truncate obs_vec to match the dynamically loaded network
+        if self.current_mode == 1:
+            if self.first_motion_flag:
+                for i in range(12):
+                    self._set_motor(i, self.target_pos_sit[i], stand_mode=True)
+            else:
+                for i in range(12):
+                    q = (1.0 - t) * self.target_pos_stand[i] + t * self.target_pos_sit[i]
+                    self._set_motor(i, q, stand_mode=True)
+            self.low_cmd_pub.publish(self.low_cmd)
+
+        elif self.current_mode == 2:
+            if self.loco_to_stand_flag:
+                for i in range(12):
+                    self._set_motor(i, self.target_pos_stand[i], stand_mode=True)
+            else:
+                for i in range(12):
+                    q = (1.0 - t) * self.target_pos_sit[i] + t * self.target_pos_stand[i]
+                    self._set_motor(i, q, stand_mode=True)
+            self.low_cmd_pub.publish(self.low_cmd)
+
+        elif self.current_mode == 3:
+            if self.control_tick % self.DECIMATION == 0:
+                self._locomotion_step()
+            else:
+                # Hold last commanded positions between policy steps
+                self.low_cmd_pub.publish(self.low_cmd)
+
+    def _locomotion_step(self):
+        # Observation order matches actor_terms exactly:
+        # base_ang_vel(3), projected_gravity(3), command(3),
+        # joint_pos_rel(12), joint_vel(12), last_action(12) -> 45 total
+        obs = []
+
+        obs.extend(self.base_ang_vel)
+        obs.extend(self.projected_gravity)
+        obs.extend(self.last_cmd_vec)
+
+        for i in range(12):
+            u_idx  = self.rl_to_unitree[i]
+            pos_mj = self.current_joint_pos[u_idx].item()# * self.hip_sign_unitree[u_idx]
+            obs.append(pos_mj - self.default_joint_pos_rl[i])
+
+        for i in range(12):
+            u_idx  = self.rl_to_unitree[i]
+            vel_mj = self.current_joint_vel[u_idx]# * self.hip_sign_unitree[u_idx]
+            obs.append(vel_mj)
+
+        obs.extend(self.last_action)
+
         num_obs = self.model.actor[0].in_features
-        if len(obs_vec) < num_obs:
-            obs_vec.extend([0.0] * (num_obs - len(obs_vec)))
-        elif len(obs_vec) > num_obs:
-            obs_vec = obs_vec[:num_obs]
+        if len(obs) != num_obs:
+            self.get_logger().warn(
+                f"obs length {len(obs)} != {num_obs}",
+                throttle_duration_sec=5.0)
+            obs = (obs + [0.0] * num_obs)[:num_obs]
 
-        # Convert to Tensor [1, num_obs]
-        obs_tensor = torch.tensor([obs_vec], dtype=torch.float32)
-
-        # --- STEP 2: INFERENCE ---
+        obs_tensor = torch.tensor([obs], dtype=torch.float32)
         with torch.no_grad():
             action = self.model(obs_tensor)
 
-        # --- STEP 3: POST-PROCESS & PUBLISH ---
+        self.last_action = action[0].tolist()
+
         action_scale = 0.25
-        num_actions = self.model.actor[-1].out_features
-        
-        # Bound by available default joints to prevent IndexError
-        num_to_publish = min(num_actions, len(self.default_joint_pos))
-        for i in range(num_to_publish):
-            raw_output = action[0, i].item()
-            target_q = (raw_output * action_scale) + self.default_joint_pos[i]
+        for i in range(12):
+            target_mj      = action[0, i].item() * action_scale + self.default_joint_pos_rl[i]
+            u_idx          = self.rl_to_unitree[i]
+            target_unitree = target_mj #* self.hip_sign_unitree[u_idx]
+            self._set_motor(u_idx, target_unitree)
 
-            self.low_cmd.motor_cmd[i].q = float(target_q)
-            self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = self.kp
-            self.low_cmd.motor_cmd[i].kd = self.kd
-            self.low_cmd.motor_cmd[i].tau = 0.0
-
-        # Note: You will need to implement CRC logic in Python if the real robot requires it.
-        # self.get_crc(self.low_cmd)
-        
         self.low_cmd_pub.publish(self.low_cmd)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -184,6 +391,7 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

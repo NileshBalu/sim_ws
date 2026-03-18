@@ -6,6 +6,6 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces>
                             <NetworkInterface name="lo" priority="default" multicast="default" />
                         </Interfaces></General></Domain></CycloneDDS>'
+ros2 daemon stop
+ros2 daemon start
 export ROS_DOMAIN_ID=1
-
-

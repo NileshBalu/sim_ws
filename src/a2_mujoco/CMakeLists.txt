@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(a2_mujoco)
 
-# --- ROS 2 ADDITION ---
 find_package(ament_cmake REQUIRED)
-# ----------------------
 
 # Set C++ standard. Build type flags (e.g., -O3, -g) are handled by CMake/ament.
 set(CMAKE_CXX_STANDARD 17)
@@ -12,7 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_PREFIX_PATH "/opt/unitree_robotics/lib/cmake")
 find_package(unitree_sdk2 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options)
-find_package(ament_index_cpp REQUIRED)
 
 file(GLOB SIM_SRC
   src/joystick/joystick.cc
@@ -23,6 +20,7 @@ file(GLOB SIM_SRC
 )
 
 add_executable(a2_mujoco ${SIM_SRC} src/main.cc)
+
 set_target_properties(a2_mujoco PROPERTIES
   # This ensures the installed executable can find its shared library dependencies.
   # $ORIGIN refers to the executable's own directory.
@@ -39,11 +37,13 @@ target_include_directories(a2_mujoco PRIVATE
   mujoco/include
   mujoco/simulate
   src/lodepng
+  src
 )
+
 
 target_link_directories(a2_mujoco PRIVATE mujoco/lib)
 
-target_link_libraries(a2_mujoco PRIVATE
+target_link_libraries(a2_mujoco
   pthread # Note: Using target_link_libraries is preferred over link_libraries in ROS 2
   mujoco
   glfw
@@ -51,12 +51,11 @@ target_link_libraries(a2_mujoco PRIVATE
   unitree_sdk2
   boost_program_options
   fmt
-  ament_index_cpp::ament_index_cpp
 )
 
 add_executable(jstest src/joystick/jstest.cc src/joystick/joystick.cc)
 
-# --- ROS 2 INSTALLATION RULES ---
+# --- INSTALLATION RULES ---
 # This moves the binaries to the 'lib' folder of your install workspace
 install(TARGETS
   a2_mujoco
@@ -75,10 +74,9 @@ install(FILES config.yaml
   DESTINATION share/${PROJECT_NAME}
 )
 
+ament_package()
+
 # Install the launch file
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
-
-ament_package()
-# ----------------------

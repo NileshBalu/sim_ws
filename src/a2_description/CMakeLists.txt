@@ -22,8 +22,8 @@ find_package(unitree_hg REQUIRED)
 find_package(unitree_api REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-add_executable(a2_bridge_node src/bridge.cpp)
-ament_target_dependencies(a2_bridge_node ${DEPENDENCY_LIST})
+add_executable(a2_bridge src/a2_bridge.cpp)
+ament_target_dependencies(a2_bridge ${DEPENDENCY_LIST})
 
 install(TARGETS
   a2_bridge_node

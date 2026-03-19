@@ -6,18 +6,18 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    # 1. Get package directories
+    # Get package directories
     description_dir = get_package_share_directory('a2_description')
     mujoco_dir = get_package_share_directory('a2_mujoco')
 
-    # 2. Declare arguments
+    # Declare arguments
     scene_arg = DeclareLaunchArgument(
         'scene',
         default_value='scene.xml',
         description='Scene file to load from a2_description/a2/'
     )
 
-    # 3. Use PathJoinSubstitution to safely combine LaunchConfiguration with strings
+    # Use PathJoinSubstitution to safely combine LaunchConfiguration with strings
     # This handles the "scene" argument dynamically
     scene_path = PathJoinSubstitution([
         description_dir,
@@ -35,7 +35,7 @@ def generate_launch_description():
                 scene_path,  # argv[1]: Path to the model XML (resolved at runtime)
                 mujoco_dir   # argv[2]: Path to the directory containing config.yaml
             ],
-            # Set CWD to the a2 folder so MuJoCo finds the 'meshes/' folder
+            # Set CWD to the mjcf folder so MuJoCo finds the 'meshes/' folder
             cwd=os.path.join(description_dir, 'mjcf')
         )
     ])
